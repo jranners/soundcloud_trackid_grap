@@ -74,9 +74,6 @@ def _detect_transitions_sbic(audio, sample_rate: int) -> list:
         size2=500,
     )
 
-    pool = es.Pool()
-    run_extractor = es.Extractor()
-
     mfcc_extractor = es.MFCC()
     w = es.Windowing(type="hann")
     spec = es.Spectrum()
