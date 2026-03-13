@@ -1,7 +1,12 @@
 import uuid
+from pathlib import Path
 
 from celery import chain
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -9,11 +14,20 @@ from app.celery_app import celery_app
 from app.database import get_db
 from app.models import Tracklist
 
+_BASE = Path(__file__).parent
+
 app = FastAPI(title="SoundCloud TrackID Grabber")
+app.mount("/static", StaticFiles(directory=_BASE / "static"), name="static")
+_templates = Jinja2Templates(directory=_BASE / "templates")
 
 
 class AnalyzeRequest(BaseModel):
     url: str
+
+
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request):
+    return _templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/health")
