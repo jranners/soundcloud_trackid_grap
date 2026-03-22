@@ -51,6 +51,11 @@ def test_sbic_detects_transitions(tmp_path, tracklist_id, download_result):
         patch("app.tasks.analysis._extract_snippet", return_value=True),
     ):
         mock_settings.RAMDISK_PATH = str(tmp_path)
+        mock_settings.SNIPPET_DURATION_SECONDS = 8
+        mock_settings.MIN_SEGMENT_DURATION = 45.0
+        mock_settings.DJ_MIN_TRACK_GAP = 75
+        mock_settings.DJ_IDEAL_TRACK_GAP = 105
+        mock_settings.DJ_MAX_TRACK_GAP = 150
         from app.tasks.analysis import segment_audio
 
         result = segment_audio.__wrapped__(download_result)
@@ -59,7 +64,7 @@ def test_sbic_detects_transitions(tmp_path, tracklist_id, download_result):
     assert isinstance(result["segments"], list)
 
 
-def test_8s_snippets_extracted(tmp_path, tracklist_id, download_result):
+def test_snippets_use_settings_duration(tmp_path, tracklist_id, download_result):
     mock_es = _make_mock_es()
     extracted_calls = []
 
@@ -73,6 +78,11 @@ def test_8s_snippets_extracted(tmp_path, tracklist_id, download_result):
         patch("app.tasks.analysis._extract_snippet", side_effect=fake_extract),
     ):
         mock_settings.RAMDISK_PATH = str(tmp_path)
+        mock_settings.SNIPPET_DURATION_SECONDS = 8
+        mock_settings.MIN_SEGMENT_DURATION = 45.0
+        mock_settings.DJ_MIN_TRACK_GAP = 75
+        mock_settings.DJ_IDEAL_TRACK_GAP = 105
+        mock_settings.DJ_MAX_TRACK_GAP = 150
         from app.tasks.analysis import segment_audio
 
         segment_audio.__wrapped__(download_result)
@@ -105,6 +115,11 @@ def test_fallback_when_no_transitions(tmp_path, tracklist_id, download_result):
         patch("app.tasks.analysis._extract_snippet", return_value=True),
     ):
         mock_settings.RAMDISK_PATH = str(tmp_path)
+        mock_settings.SNIPPET_DURATION_SECONDS = 8
+        mock_settings.MIN_SEGMENT_DURATION = 45.0
+        mock_settings.DJ_MIN_TRACK_GAP = 75
+        mock_settings.DJ_IDEAL_TRACK_GAP = 105
+        mock_settings.DJ_MAX_TRACK_GAP = 150
         from app.tasks.analysis import segment_audio
 
         result = segment_audio.__wrapped__(download_result)
@@ -149,6 +164,11 @@ def test_sbic_uses_current_parameter_names(tmp_path, tracklist_id, download_resu
         patch("app.tasks.analysis._extract_snippet", return_value=True),
     ):
         mock_settings.RAMDISK_PATH = str(tmp_path)
+        mock_settings.SNIPPET_DURATION_SECONDS = 8
+        mock_settings.MIN_SEGMENT_DURATION = 45.0
+        mock_settings.DJ_MIN_TRACK_GAP = 75
+        mock_settings.DJ_IDEAL_TRACK_GAP = 105
+        mock_settings.DJ_MAX_TRACK_GAP = 150
         from app.tasks.analysis import segment_audio
 
         segment_audio.__wrapped__(download_result)
@@ -179,6 +199,37 @@ def test_enforce_dj_track_spacing_returns_empty_for_empty():
     assert _enforce_dj_track_spacing([]) == []
 
 
+def test_enforce_dj_track_spacing_uses_settings_values():
+    from app.tasks.analysis import _enforce_dj_track_spacing
+
+    transitions = [10.0, 60.0, 120.0, 170.0, 230.0]
+
+    with patch("app.tasks.analysis.settings") as mock_settings:
+        mock_settings.DJ_MIN_TRACK_GAP = 45
+        mock_settings.DJ_IDEAL_TRACK_GAP = 60
+        mock_settings.DJ_MAX_TRACK_GAP = 80
+        selected = _enforce_dj_track_spacing(transitions)
+
+    assert selected == [10.0, 60.0, 120.0, 170.0, 230.0]
+    gaps = [b - a for a, b in zip(selected, selected[1:])]
+    assert all(45 <= gap <= 80 for gap in gaps)
+
+
+def test_enforce_dj_track_spacing_filters_out_of_window_candidates():
+    from app.tasks.analysis import _enforce_dj_track_spacing
+
+    transitions = [10.0, 40.0, 80.0, 125.0, 170.0, 260.0]
+
+    with patch("app.tasks.analysis.settings") as mock_settings:
+        mock_settings.DJ_MIN_TRACK_GAP = 45
+        mock_settings.DJ_IDEAL_TRACK_GAP = 60
+        mock_settings.DJ_MAX_TRACK_GAP = 80
+        selected = _enforce_dj_track_spacing(transitions)
+
+    assert selected == [10.0, 80.0, 125.0, 170.0, 260.0]
+    assert 40.0 not in selected
+
+
 def test_merge_short_segments_enforces_min_duration():
     from app.tasks.analysis import merge_short_segments
 
@@ -201,3 +252,13 @@ def test_merge_short_segments_handles_cascading_short_segments():
     durations = [end - start for start, end in merged]
 
     assert all(d >= 45.0 for d in durations[:-1])
+
+
+def test_merge_short_segments_uses_settings_default():
+    from app.tasks.analysis import merge_short_segments
+
+    with patch("app.tasks.analysis.settings") as mock_settings:
+        mock_settings.MIN_SEGMENT_DURATION = 55.0
+        merged = merge_short_segments([(0.0, 50.0), (50.0, 120.0)])
+
+    assert merged == [(0.0, 120.0)]

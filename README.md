@@ -50,8 +50,22 @@ graph TD
 
 1.  **Download**: High-quality audio is fetched using `yt-dlp` and stored on a RAM-disk.
 2.  **Segment**: Musical transitions are detected using Essentia's SBIC algorithm.
-3.  **Identify**: 12-second snippets are extracted and sent to the Shazam API.
+3.  **Identify**: Configurable snippets (default: 8 seconds via `SNIPPET_DURATION_SECONDS`) are extracted and sent to the Shazam API.
 4.  **Sync**: Results are aggregated, saved to the database, and optionally sent to **BeatportDL**.
+
+---
+
+## 🎛️ Tuning & Heuristics
+
+The analysis pipeline exposes key heuristics via environment variables:
+
+- `SNIPPET_DURATION_SECONDS` (default: `8`): length of each extracted snippet used for track identification.
+- `MIN_SEGMENT_DURATION` (default: `45.0`): minimum segment length in seconds before short segments are merged.
+- `DJ_MIN_TRACK_GAP` (default: `75`): minimum allowed spacing (seconds) between selected transition points.
+- `DJ_IDEAL_TRACK_GAP` (default: `105`): preferred spacing (seconds) used when choosing the next transition candidate.
+- `DJ_MAX_TRACK_GAP` (default: `150`): maximum spacing (seconds) considered in the preferred transition window.
+
+These can be tuned per deployment/genre without code changes by setting ENV values in `.env` or `docker-compose.yml`.
 
 ---
 
