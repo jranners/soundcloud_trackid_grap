@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     RAMDISK_PATH: str = "/app/ramdisk"
     FLOWER_USER: str = "admin"
     FLOWER_PASSWORD: str = "admin"
+    BEATPORTDL_API_URL: str = "http://192.168.178.39:10091"
 
 
 settings = Settings()

@@ -10,9 +10,11 @@ celery_app = Celery(
         "app.tasks.download",
         "app.tasks.analysis",
         "app.tasks.fingerprint",
+        "app.tasks.beatport",
         "app.tasks",
     ],
 )
+
 
 celery_app.conf.update(
     task_serializer="json",

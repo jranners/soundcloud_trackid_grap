@@ -74,14 +74,22 @@ def segment_audio(self, download_result: dict) -> dict:
         )
 
         for idx, ts in enumerate(transitions, start=1):
-            snippet_start = ts + OFFSET_AFTER_TRANSITION
-            snippet_path = os.path.join(
-                settings.RAMDISK_PATH,
-                f"{tracklist_id}_snippet_{int(snippet_start)}.wav",
-            )
-            success = _extract_snippet(audio_path, snippet_start, SNIPPET_DURATION, snippet_path)
-            if success:
-                segments.append({"path": snippet_path, "timestamp": ts})
+            candidates = []
+            for offset in [OFFSET_AFTER_TRANSITION, OFFSET_AFTER_TRANSITION + 15, OFFSET_AFTER_TRANSITION - 15]:
+                snippet_start = ts + offset
+                if snippet_start < 0:
+                    continue
+                snippet_path = os.path.join(
+                    settings.RAMDISK_PATH,
+                    f"{tracklist_id}_snippet_{int(ts)}_{offset}.wav",
+                )
+                success = _extract_snippet(audio_path, snippet_start, SNIPPET_DURATION, snippet_path)
+                if success:
+                    candidates.append({"path": snippet_path, "offset": offset})
+            
+            if candidates:
+                segments.append({"candidates": candidates, "timestamp": ts})
+                
             extraction_ratio = (idx / total_transitions) if total_transitions else 1.0
             set_tracklist_progress(
                 tracklist_id,
@@ -112,8 +120,10 @@ def segment_audio(self, download_result: dict) -> dict:
             if audio_path and os.path.exists(audio_path):
                 os.remove(audio_path)
         for seg in segments:
-            if os.path.exists(seg["path"]):
-                os.remove(seg["path"])
+            for candidate in seg.get("candidates", []):
+                cp = candidate.get("path")
+                if cp and os.path.exists(cp):
+                    os.remove(cp)
         raise self.retry(exc=exc, countdown=15)
 
 

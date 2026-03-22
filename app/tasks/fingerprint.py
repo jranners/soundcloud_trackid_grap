@@ -33,21 +33,28 @@ def identify_tracks(self, analysis_result: dict) -> dict:
         )
 
         for idx, segment in enumerate(segments, start=1):
-            snippet_path = segment["path"]
+            candidates = segment.get("candidates", [])
             timestamp = segment["timestamp"]
-
-            if not os.path.exists(snippet_path):
-                logger.warning("Snippet not found: %s", snippet_path)
-                identifications.append({"timestamp": timestamp, "result": None})
-                continue
-
-            try:
-                result = asyncio.run(_async_identify(snippet_path))
-                identifications.append({"timestamp": timestamp, "result": result})
-                logger.info("Identified track at %.1fs: %s", timestamp, result)
-            except Exception as exc:
-                logger.error("Identification failed for %s: %s", snippet_path, exc)
-                identifications.append({"timestamp": timestamp, "result": None})
+            
+            identified_result = None
+            for candidate in candidates:
+                snippet_path = candidate.get("path", "")
+                if not os.path.exists(snippet_path):
+                    continue
+                try:
+                    result = asyncio.run(_async_identify(snippet_path))
+                    # shazamio returns a structure where 'track' exists if identified
+                    if result and "track" in result:
+                        identified_result = result
+                        logger.info("Identified track at %.1fs using offset %+d: %s", timestamp, candidate.get("offset", 0), result)
+                        break
+                except Exception as exc:
+                    logger.error("Identification failed for %s: %s", snippet_path, exc)
+            
+            if identified_result:
+                identifications.append({"timestamp": timestamp, "result": identified_result})
+            else:
+                logger.warning("No candidate recognized for transition at %.1fs", timestamp)
 
             fingerprint_ratio = (idx / total_segments) if total_segments else 1.0
             set_tracklist_progress(
@@ -72,9 +79,10 @@ def identify_tracks(self, analysis_result: dict) -> dict:
 
     finally:
         for segment in segments:
-            path = segment.get("path", "")
-            if path and os.path.exists(path):
-                os.remove(path)
+            for candidate in segment.get("candidates", []):
+                path = candidate.get("path", "")
+                if path and os.path.exists(path):
+                    os.remove(path)
 
 
 async def _async_identify(snippet_path: str) -> dict:

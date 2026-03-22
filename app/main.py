@@ -14,6 +14,7 @@ from app.celery_app import celery_app
 from app.database import get_db
 from app.models import Tracklist
 from app.tasks.download import fetch_soundcloud_metadata
+from app.config import settings
 
 _BASE = Path(__file__).parent
 
@@ -212,6 +213,8 @@ def get_tracklist(tracklist_id: str):
             }
             for t in tracklist.tracks
         ]
+        
+        tracks.sort(key=lambda x: x["timestamp_start"] or 0.0)
 
         return {
             "id": str(tracklist.id),
@@ -228,3 +231,19 @@ def get_tracklist(tracklist_id: str):
             "updated_at": tracklist.updated_at.isoformat() if tracklist.updated_at else None,
             "tracks": tracks,
         }
+
+
+@app.post("/beatport/send-all/{tracklist_id}")
+def beatport_send_all(tracklist_id: str, mode: str = "zip"):
+    from app.tasks.beatport import send_to_beatportdl
+    try:
+        uuid.UUID(tracklist_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid tracklist_id")
+        
+    task = send_to_beatportdl.delay(tracklist_id, mode)
+    return {"status": "dispatched", "task_id": task.id, "mode": mode}
+
+@app.get("/config")
+def get_config():
+    return {"beatportdl_api_url": settings.BEATPORTDL_API_URL.rstrip('/')}

@@ -31,6 +31,11 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
                 logger.error("Tracklist %s not found in DB", tracklist_id)
                 return {"tracklist_id": tracklist_id, "error": "not found", "tracks": []}
 
+            identifications.sort(key=lambda x: x["timestamp"])
+
+            last_title = None
+            last_artist = None
+
             for item in identifications:
                 timestamp = item["timestamp"]
                 raw = item.get("result") or {}
@@ -43,6 +48,16 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
                     artist = track_data.get("subtitle")
                 except Exception:
                     pass
+
+                # Handle deduplication and missing text
+                if not title and not artist:
+                    pass 
+                
+                if title == last_title and artist == last_artist and title is not None:
+                    continue
+                    
+                last_title = title
+                last_artist = artist
 
                 track = Track(
                     id=uuid.uuid4(),

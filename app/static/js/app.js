@@ -323,13 +323,33 @@ function renderJobCard(job) {
       </div>
 
       ${canOpenTracklist ? `
-      <button
-        class="btn btn-secondary tracklist-toggle"
-        type="button"
-        data-tracklist-id="${escHtml(job.tracklistId)}"
-      >
-        ${isExpanded ? "Trackliste zuklappen" : "Trackliste aufklappen"}
-      </button>` : ""}
+      <div id="bp-container-${escHtml(job.tracklistId)}" style="margin-top:1rem;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button
+            class="btn btn-secondary tracklist-toggle"
+            type="button"
+            data-tracklist-id="${escHtml(job.tracklistId)}"
+          >
+            ${isExpanded ? "Trackliste zuklappen" : "Trackliste aufklappen"}
+          </button>
+          <button
+            class="btn btn-primary beatport-dl-btn"
+            type="button"
+            data-mode="zip"
+            data-tracklist-id="${escHtml(job.tracklistId)}"
+          >
+            BeatportDL (Als ZIP)
+          </button>
+          <button
+            class="btn btn-primary beatport-dl-btn"
+            type="button"
+            data-mode="server"
+            data-tracklist-id="${escHtml(job.tracklistId)}"
+          >
+            BeatportDL (Auf Server)
+          </button>
+        </div>
+      </div>` : ""}
 
       ${tracksHtml}
     </article>
@@ -352,20 +372,35 @@ function renderTracks(tracks, expanded) {
     const start = fmt(track.timestamp_start);
     const end = fmt(track.timestamp_end);
     const unknown = track.artist ? "" : "unknown";
+    
+    let linkHtml = "";
+    if (track.raw_result && track.raw_result.track) {
+      const tr = track.raw_result.track;
+      const url = tr.apple_music_url || tr.url || "";
+      if (url) {
+        linkHtml = `<a href="${escHtml(url)}" target="_blank" class="track-link" title="Listen on Apple Music / Shazam" style="margin-left: auto; margin-right: 15px; font-size: 1.25rem; text-decoration: none; align-self: center;">🎵</a>`;
+      }
+    }
+
     return `
       <div class="track-item">
-        <span class="track-num">${i + 1}</span>
-        <div class="track-art">
-          <svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
-        </div>
-        <div class="track-info">
-          <div class="track-title">${title}</div>
-          <div class="track-artist ${unknown}">${artist}</div>
-        </div>
-        <div class="track-time">
-          <div class="time-start">${start}</div>
-          <div class="time-end">→ ${end}</div>
-        </div>
+         <div class="track-item-header">
+           <div class="track-num">#${i + 1}</div>
+           <div class="track-time">
+              <div class="time-main">${start}</div>
+              <div class="time-sub">Start time</div>
+           </div>
+         </div>
+         <div class="track-item-body">
+           <div class="track-art">
+             <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+           </div>
+           <div class="track-info">
+             <div class="track-title">${title}</div>
+             <div class="track-artist ${unknown}">${artist}</div>
+           </div>
+         </div>
+         ${linkHtml ? `<div style="display:flex; justify-content:flex-end; width:100%; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">${linkHtml}</div>` : ''}
       </div>
     `;
   }).join("");
@@ -428,7 +463,64 @@ function matchesFilter(job, query) {
   return haystack.includes(query);
 }
 
-jobsList?.addEventListener("click", (event) => {
+let beatportApiUrl = "http://192.168.178.39:10091";
+fetch("/config").then(r => r.json()).then(d => {
+  if(d.beatportdl_api_url) beatportApiUrl = d.beatportdl_api_url.replace(/\/$/, "");
+}).catch(()=>{});
+
+jobsList?.addEventListener("click", async (event) => {
+  const beatportBtn = event.target.closest(".beatport-dl-btn");
+  if (beatportBtn) {
+    const tracklistId = beatportBtn.getAttribute("data-tracklist-id");
+    const mode = beatportBtn.getAttribute("data-mode") || "zip";
+    if (!tracklistId) return;
+    
+    const container = document.getElementById(`bp-container-${tracklistId}`);
+    if(container) {
+       container.innerHTML = `
+         <div class="status-banner pending">
+            <div class="spinner" style="display:block"></div>
+            <div class="status-info">
+              <div class="status-title">Suchlauf auf Beatport läuft...</div>
+              <div class="status-detail">Tracks werden im Hintergrund gesucht</div>
+            </div>
+         </div>
+       `;
+    }
+    
+    try {
+      const res = await fetch(`/beatport/send-all/${encodeURIComponent(tracklistId)}?mode=${encodeURIComponent(mode)}`, { method: "POST" });
+      if (!res.ok) throw new Error("Fehler beim Senden");
+      const data = await res.json();
+      
+      // Poll celery job
+      const pollCelery = setInterval(async () => {
+         try {
+           const stRes = await fetch(`/status/${data.task_id}?tracklist_id=${encodeURIComponent(tracklistId)}`);
+           if(!stRes.ok) return;
+           const stData = await stRes.json();
+           const st = String(stData.status||"").toUpperCase();
+           if(st === "SUCCESS") {
+              clearInterval(pollCelery);
+              const bpJobId = stData.result?.beatport_job_id;
+              if(!bpJobId) {
+                 if(container) container.innerHTML = `<div class="status-banner error"><div class="status-info"><div class="status-title">Fehler</div><div class="status-detail">Keine Tracks gefunden oder Job ID fehlt.</div></div></div>`;
+                 return;
+              }
+              startBeatportSSE(container, bpJobId, mode);
+           } else if (st === "FAILURE") {
+              clearInterval(pollCelery);
+              if(container) container.innerHTML = `<div class="status-banner error"><div class="status-info"><div class="status-title">Fehler</div><div class="status-detail">Suche fehlgeschlagen.</div></div></div>`;
+           }
+         } catch(e){}
+      }, 1500);
+      
+    } catch (_) {
+      if(container) container.innerHTML = `<div class="status-banner error"><div class="status-info"><div class="status-title">Fehler</div><div class="status-detail">Konnte nicht gestartet werden.</div></div></div>`;
+    }
+    return;
+  }
+
   const button = event.target.closest(".tracklist-toggle");
   if (!button) return;
   const tracklistId = button.getAttribute("data-tracklist-id");
@@ -466,3 +558,65 @@ window.setInterval(async () => {
     // ignore background refresh errors
   }
 }, 10000);
+
+function startBeatportSSE(container, jobId, mode) {
+  if(!container) return;
+  
+  // Render initial progress bar
+  container.innerHTML = `
+    <div class="status-banner started">
+      <div class="spinner" style="display:block"></div>
+      <div class="status-info">
+        <div class="status-title" id="bp-title-${jobId}">Download startet...</div>
+        <div class="status-detail" id="bp-detail-${jobId}">Verbinde mit BeatportDL...</div>
+      </div>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" id="bp-bar-${jobId}" style="width:0%"></div>
+    </div>
+  `;
+  
+  const titleEl = document.getElementById(`bp-title-${jobId}`);
+  const detailEl = document.getElementById(`bp-detail-${jobId}`);
+  const barEl = document.getElementById(`bp-bar-${jobId}`);
+  
+  const sse = new EventSource(`${beatportApiUrl}/api/download/status/stream`);
+  
+  sse.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if(data.type === "progress" && data.jobId === jobId) {
+         if(titleEl) titleEl.textContent = "Lade von Beatport herunter...";
+         if(detailEl) detailEl.textContent = data.progress?.stage || "Wird heruntergeladen...";
+         if(barEl) {
+            barEl.style.width = Math.max(5, (data.progress?.value || 0)) + "%";
+            barEl.classList.remove("done");
+         }
+      } else if(data.type === "completed" && data.jobId === jobId) {
+         if(titleEl) titleEl.textContent = "Download Abgeschlossen!";
+         if(detailEl) detailEl.textContent = "Alle Tracks wurden erfolgreich geladen.";
+         if(barEl) {
+            barEl.style.width = "100%";
+            barEl.classList.add("done");
+         }
+         container.querySelector(".status-banner").className = "status-banner success";
+         container.querySelector(".spinner").style.display = "none";
+         
+         if(mode === "zip" && data.file) {
+            window.location.href = `${beatportApiUrl}/api/download/file/${data.file}`;
+         }
+         sse.close();
+      } else if(data.type === "failed" && data.jobId === jobId) {
+         if(titleEl) titleEl.textContent = "Fehler beim Download";
+         if(detailEl) detailEl.textContent = data.error || "Unbekannter Fehler";
+         container.querySelector(".status-banner").className = "status-banner error";
+         container.querySelector(".spinner").style.display = "none";
+         sse.close();
+      }
+    } catch(err){}
+  };
+  
+  sse.onerror = () => {
+     sse.close();
+  };
+}
