@@ -11,31 +11,6 @@ from app.config import settings
 from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
-DEFAULT_DJ_MIN_TRACK_GAP = 75.0
-DEFAULT_DJ_IDEAL_TRACK_GAP = 105.0
-DEFAULT_DJ_MAX_TRACK_GAP = 150.0
-DEFAULT_MIN_SEGMENT_DURATION = 45.0
-
-
-def _get_float_setting(name: str, default: float) -> float:
-    value = getattr(settings, name, default)
-    # bool is a subclass of int; treat it as invalid config for numeric settings.
-    if isinstance(value, bool):
-        return float(default)
-    if isinstance(value, (int, float)):
-        return float(value)
-    if not isinstance(value, str):
-        return float(default)
-    try:
-        return float(value.strip())
-    except (TypeError, ValueError):
-        return float(default)
-
-
-MIN_SEGMENT_DURATION = _get_float_setting(
-    "MIN_SEGMENT_DURATION",
-    DEFAULT_MIN_SEGMENT_DURATION,
-)
 
 @dataclass
 class SegmentFeatures:
@@ -113,7 +88,7 @@ def segment_audio(self, download_result: dict) -> dict:
         segment_ranges = _build_segment_ranges(
             transitions=transitions,
             audio_duration=audio_duration,
-            min_duration=_get_float_setting("MIN_SEGMENT_DURATION", DEFAULT_MIN_SEGMENT_DURATION),
+            min_duration=settings.MIN_SEGMENT_DURATION,
         )
 
         total_transitions = len(segment_ranges)
@@ -305,10 +280,6 @@ def _enforce_dj_track_spacing(transitions: list[float]) -> list[float]:
     if not transitions:
         return []
 
-    min_gap = _get_float_setting("DJ_MIN_TRACK_GAP", DEFAULT_DJ_MIN_TRACK_GAP)
-    ideal_gap = _get_float_setting("DJ_IDEAL_TRACK_GAP", DEFAULT_DJ_IDEAL_TRACK_GAP)
-    max_gap = _get_float_setting("DJ_MAX_TRACK_GAP", DEFAULT_DJ_MAX_TRACK_GAP)
-
     sorted_transitions = sorted(set(float(t) for t in transitions))
     selected = [sorted_transitions[0]]
     remaining = sorted_transitions[1:]
@@ -318,12 +289,12 @@ def _enforce_dj_track_spacing(transitions: list[float]) -> list[float]:
         in_window = [
             t
             for t in remaining
-            if min_gap <= (t - last) <= max_gap
+            if settings.DJ_MIN_TRACK_GAP <= (t - last) <= settings.DJ_MAX_TRACK_GAP
         ]
         if in_window:
-            best = min(in_window, key=lambda t: abs((t - last) - ideal_gap))
+            best = min(in_window, key=lambda t: abs((t - last) - settings.DJ_IDEAL_TRACK_GAP))
         else:
-            far_candidates = [t for t in remaining if (t - last) > max_gap]
+            far_candidates = [t for t in remaining if (t - last) > settings.DJ_MAX_TRACK_GAP]
             if not far_candidates:
                 break
             best = far_candidates[0]
@@ -340,7 +311,7 @@ def _build_segment_ranges(
 ) -> list[tuple[float, float]]:
     """Build contiguous [start, end) ranges and enforce minimum duration by merging."""
     if min_duration is None:
-        min_duration = _get_float_setting("MIN_SEGMENT_DURATION", DEFAULT_MIN_SEGMENT_DURATION)
+        min_duration = settings.MIN_SEGMENT_DURATION
     cleaned = sorted(
         {
             float(t)
@@ -368,7 +339,7 @@ def merge_short_segments(
     - Middle short segment merges with the longer neighboring segment.
     """
     if min_duration is None:
-        min_duration = _get_float_setting("MIN_SEGMENT_DURATION", DEFAULT_MIN_SEGMENT_DURATION)
+        min_duration = settings.MIN_SEGMENT_DURATION
 
     if len(segments) <= 1:
         return segments
