@@ -88,6 +88,34 @@ Poll the Celery task status.
 
 `status` mirrors Celery's standard states: `PENDING`, `STARTED`, `SUCCESS`, `FAILURE`, `RETRY`.
 
+You can optionally pass `tracklist_id` as a query parameter to receive stage-aware progress metadata:
+
+```http
+GET /status/{task_id}?tracklist_id={tracklist_id}
+```
+
+Response then includes:
+
+- `progress.stage` (`queued`, `downloading`, `segmenting`, `fingerprinting`, `completed`, `failed`)
+- `progress.progress` (0-100)
+- `progress.title` (human-readable stage)
+- `progress.message` (detailed step message)
+- `progress.processed_segments` / `progress.total_segments`
+
+---
+
+### `GET /jobs`
+
+Returns recent analyses for reload-safe UI state restoration.
+
+**Query params**
+- `limit` (default `20`, max `200`)
+- `status` (`active`, `completed`, `all`; default `active`)
+
+Each job includes:
+- `id`, `task_id`, `url`, `set_title`, `cover_url`, `status`
+- `progress` object with stage/title/percent/message/segment counters
+
 ---
 
 ### `GET /tracklist/{tracklist_id}`
@@ -138,7 +166,7 @@ Environment variables (override in `docker-compose.yml` or via a `.env` file):
 |---|---|---|
 | `REDIS_URL` | `redis://redis:6379/0` | Celery broker & result backend |
 | `DATABASE_URL` | `postgresql://user:password@postgres:5432/trackid` | PostgreSQL DSN |
-| `RAMDISK_PATH` | `/app/ramdisk` | Temporary audio storage (tmpfs) |
+| `RAMDISK_PATH` | `/app/ramdisk` | Shared temporary audio storage between workers |
 | `FLOWER_USER` | `admin` | Flower basic-auth username |
 | `FLOWER_PASSWORD` | `admin` | Flower basic-auth password |
 
@@ -149,8 +177,9 @@ Environment variables (override in `docker-compose.yml` or via a `.env` file):
 Alembic is used for schema management:
 
 ```bash
-# Apply all migrations (run inside the api container)
-docker compose exec api alembic upgrade head
+# Migrations run automatically via the `migrate` service during `docker compose up`.
+# Manual run (if needed):
+docker compose run --rm migrate
 
 # Generate a new migration after model changes
 docker compose exec api alembic revision --autogenerate -m "describe change"

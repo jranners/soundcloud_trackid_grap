@@ -283,6 +283,128 @@ main {
   word-break: break-all;
 }
 
+.jobs-section {
+  margin-top: 1.5rem;
+}
+
+.jobs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tab-row {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.set-filter-row {
+  margin-bottom: 0.9rem;
+}
+
+.tab-btn {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  border-color: var(--sc-orange);
+  color: var(--sc-orange);
+  background: var(--sc-orange-dim);
+}
+
+.job-card .track-list {
+  margin-top: 1rem;
+}
+
+.job-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.job-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.job-id {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-family: 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.set-header {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 0.8rem;
+}
+
+.set-cover {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+}
+
+.set-cover.placeholder {
+  background: linear-gradient(135deg, var(--bg-input), var(--bg-secondary));
+}
+
+.set-title-wrap {
+  min-width: 0;
+}
+
+.set-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.set-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-meta {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-family: 'Courier New', monospace;
+}
+
 /* ── Progress bar ── */
 .progress-bar-wrap {
   background: var(--bg-input);
@@ -349,6 +471,16 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.track-list.collapsed {
+  display: none;
+}
+
+.tracklist-toggle {
+  margin-top: 0.8rem;
+  width: 100%;
+  justify-content: center;
 }
 
 .track-item {

@@ -66,6 +66,9 @@ def test_analyze_returns_task_and_tracklist(session, mock_chain):
     assert "tracklist_id" in data
     assert data["task_id"] == "fake-task-id"
     uuid.UUID(data["tracklist_id"])
+    tl = session.get(Tracklist, uuid.UUID(data["tracklist_id"]))
+    assert tl is not None
+    assert tl.task_id == "fake-task-id"
 
 
 def test_get_status():
@@ -85,6 +88,103 @@ def test_get_status():
     data = resp.json()
     assert data["task_id"] == "some-task-id"
     assert data["status"] == "PENDING"
+
+
+def test_get_status_includes_progress(session):
+    from app.main import app
+
+    tl_id = uuid.uuid4()
+    tl = Tracklist(
+        id=tl_id,
+        url="https://soundcloud.com/test/mix",
+        status="segmenting",
+        progress_percent=53,
+        progress_message="Extracting snippets 4/10",
+    )
+    session.add(tl)
+    session.commit()
+
+    mock_result = MagicMock()
+    mock_result.status = "STARTED"
+    mock_result.ready.return_value = False
+    mock_result.result = None
+
+    with (
+        patch("app.main.celery_app") as mock_ca,
+        patch("app.main.get_db", side_effect=make_fake_get_db(session)),
+    ):
+        mock_ca.AsyncResult.return_value = mock_result
+        with TestClient(app) as client:
+            resp = client.get(f"/status/some-task-id?tracklist_id={tl_id}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "STARTED"
+    assert data["progress"]["stage"] == "segmenting"
+    assert data["progress"]["progress"] == 53
+    assert data["progress"]["message"] == "Extracting snippets 4/10"
+    assert data["tracklist"]["id"] == str(tl_id)
+
+
+def test_jobs_endpoint_returns_recent_jobs(session):
+    from app.main import app
+
+    one = Tracklist(
+        id=uuid.uuid4(),
+        task_id="task-1",
+        url="https://soundcloud.com/test/a",
+        set_title="Set A",
+        cover_url="https://img.test/a.jpg",
+        status="downloading",
+        progress_percent=14,
+        progress_message="Downloading audio (40%)",
+    )
+    two = Tracklist(
+        id=uuid.uuid4(),
+        task_id="task-2",
+        url="https://soundcloud.com/test/b",
+        status="completed",
+        progress_percent=100,
+    )
+    session.add(one)
+    session.add(two)
+    session.commit()
+
+    with patch("app.main.get_db", side_effect=make_fake_get_db(session)):
+        with TestClient(app) as client:
+            resp = client.get("/jobs?limit=10&status=active")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "jobs" in data
+    assert len(data["jobs"]) >= 1
+    found = [item for item in data["jobs"] if item["task_id"] == "task-1"][0]
+    assert found["set_title"] == "Set A"
+    assert found["cover_url"] == "https://img.test/a.jpg"
+    assert found["progress"]["progress"] == 14
+
+
+def test_jobs_endpoint_completed_tab(session):
+    from app.main import app
+
+    session.add(
+        Tracklist(
+            id=uuid.uuid4(),
+            task_id="task-completed",
+            url="https://soundcloud.com/test/completed",
+            status="completed",
+            progress_percent=100,
+        )
+    )
+    session.commit()
+
+    with patch("app.main.get_db", side_effect=make_fake_get_db(session)):
+        with TestClient(app) as client:
+            resp = client.get("/jobs?limit=10&status=completed")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(item["task_id"] == "task-completed" for item in data["jobs"])
 
 
 def test_get_tracklist_not_found(session):

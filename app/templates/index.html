@@ -59,35 +59,27 @@
       <p id="error-msg" class="error-message"></p>
     </div>
 
-    <!-- Status -->
-    <div id="status-section">
-      <div id="status-banner" class="status-banner pending">
-        <div id="spinner" class="spinner"></div>
-        <span id="status-icon" class="status-icon" style="display:none">⏳</span>
-        <div class="status-info">
-          <div id="status-title" class="status-title">Queued…</div>
-          <div id="status-detail" class="status-detail"></div>
-        </div>
+    <section id="jobs-section" class="jobs-section">
+      <div class="jobs-header">
+        <h2>Analysen</h2>
+        <span id="job-count" class="badge">0 aktiv</span>
       </div>
-      <div class="progress-bar-wrap" style="margin-top:0.75rem">
-        <div id="progress-fill" class="progress-bar-fill"></div>
+      <div class="set-filter-row">
+        <input
+          id="set-search-input"
+          class="url-input"
+          type="text"
+          placeholder="Sets filtern (Titel, URL, Task-ID)..."
+          autocomplete="off"
+          spellcheck="false"
+        />
       </div>
-    </div>
-
-    <!-- Results -->
-    <div id="results-section">
-      <div class="card">
-        <div class="results-header">
-          <h2>Tracklist</h2>
-          <span id="track-count" class="badge">0 tracks</span>
-        </div>
-        <div id="track-list" class="track-list"></div>
-        <div class="source-meta">
-          <span>Source:</span>
-          <a id="source-url" href="#" target="_blank" rel="noopener noreferrer"></a>
-        </div>
+      <div class="tab-row">
+        <button id="tab-active" class="tab-btn active" type="button">Aktiv</button>
+        <button id="tab-completed" class="tab-btn" type="button">Fertig</button>
       </div>
-    </div>
+      <div id="jobs-list" class="jobs-list"></div>
+    </section>
 
   </main>
 

@@ -135,3 +135,42 @@ def test_ffmpeg_conversion_called(tmp_path):
     assert "16000" in args
     assert "-ac" in args
     assert "1" in args
+
+
+def test_sbic_uses_current_parameter_names(tmp_path, tracklist_id, download_result):
+    mock_es = _make_mock_es()
+
+    with (
+        patch.dict("sys.modules", {"essentia": MagicMock(), "essentia.standard": mock_es}),
+        patch("app.tasks.analysis.settings") as mock_settings,
+        patch("app.tasks.analysis._extract_snippet", return_value=True),
+    ):
+        mock_settings.RAMDISK_PATH = str(tmp_path)
+        from app.tasks.analysis import segment_audio
+
+        segment_audio.__wrapped__(download_result)
+
+    kwargs = mock_es.SBic.call_args.kwargs
+    assert "inc1" in kwargs
+    assert "inc2" in kwargs
+    assert "minLength" in kwargs
+    assert "increase" not in kwargs
+    assert "minSegLen" not in kwargs
+
+
+def test_enforce_dj_track_spacing_prefers_around_105_seconds():
+    from app.tasks.analysis import _enforce_dj_track_spacing
+
+    transitions = [31.0, 90.0, 132.0, 210.0, 235.0, 315.0, 420.0]
+    selected = _enforce_dj_track_spacing(transitions)
+
+    assert selected[0] == 31.0
+    assert 132.0 in selected
+    assert 235.0 in selected
+    assert 315.0 in selected
+
+
+def test_enforce_dj_track_spacing_returns_empty_for_empty():
+    from app.tasks.analysis import _enforce_dj_track_spacing
+
+    assert _enforce_dj_track_spacing([]) == []

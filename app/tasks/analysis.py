@@ -1,15 +1,20 @@
 import os
 import subprocess
+import glob
 
 from celery.utils.log import get_task_logger
 
 from app.celery_app import celery_app
 from app.config import settings
+from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
 
 SNIPPET_DURATION = 12  # seconds
 OFFSET_AFTER_TRANSITION = 30  # seconds
+DJ_MIN_TRACK_GAP = 75  # seconds
+DJ_IDEAL_TRACK_GAP = 105  # seconds
+DJ_MAX_TRACK_GAP = 150  # seconds
 
 
 @celery_app.task(
@@ -24,6 +29,22 @@ def segment_audio(self, download_result: dict) -> dict:
     segments = []
 
     try:
+        set_tracklist_progress(
+            tracklist_id,
+            status="segmenting",
+            progress_percent=30,
+            progress_message="Loading audio for segmentation",
+        )
+        if not os.path.exists(audio_path):
+            # Defensive recovery for stale path values: locate current downloaded file by tracklist id.
+            pattern = os.path.join(settings.RAMDISK_PATH, f"{tracklist_id}.*")
+            matches = glob.glob(pattern)
+            if matches:
+                audio_path = matches[0]
+                logger.warning("Recovered missing audio path for %s: %s", tracklist_id, audio_path)
+            else:
+                raise FileNotFoundError(f"Audio file missing for tracklist {tracklist_id}: {audio_path}")
+
         import essentia.standard as es
 
         loader = es.MonoLoader(filename=audio_path, sampleRate=44100)
@@ -34,9 +55,25 @@ def segment_audio(self, download_result: dict) -> dict:
 
         if not transitions:
             logger.warning("No transitions found, using onset fallback for %s", tracklist_id)
+            set_tracklist_progress(
+                tracklist_id,
+                progress_percent=40,
+                progress_message="No clear transitions, running fallback detector",
+            )
             transitions = _detect_transitions_fallback(audio, sample_rate)
 
-        for ts in transitions:
+        transitions = _enforce_dj_track_spacing(transitions)
+
+        total_transitions = len(transitions)
+        set_tracklist_progress(
+            tracklist_id,
+            total_segments=total_transitions,
+            processed_segments=0,
+            progress_percent=45,
+            progress_message=f"Found {total_transitions} transitions",
+        )
+
+        for idx, ts in enumerate(transitions, start=1):
             snippet_start = ts + OFFSET_AFTER_TRANSITION
             snippet_path = os.path.join(
                 settings.RAMDISK_PATH,
@@ -45,20 +82,39 @@ def segment_audio(self, download_result: dict) -> dict:
             success = _extract_snippet(audio_path, snippet_start, SNIPPET_DURATION, snippet_path)
             if success:
                 segments.append({"path": snippet_path, "timestamp": ts})
+            extraction_ratio = (idx / total_transitions) if total_transitions else 1.0
+            set_tracklist_progress(
+                tracklist_id,
+                processed_segments=idx,
+                progress_percent=45 + (extraction_ratio * 20),
+                progress_message=f"Extracting snippets {idx}/{total_transitions}",
+            )
 
         logger.info("Extracted %d segments for %s", len(segments), tracklist_id)
+        set_tracklist_progress(
+            tracklist_id,
+            progress_percent=65,
+            progress_message=f"Segmentation completed ({len(segments)} snippets)",
+        )
+        if audio_path and os.path.exists(audio_path):
+            os.remove(audio_path)
         return {"tracklist_id": tracklist_id, "segments": segments}
 
     except Exception as exc:
         logger.error("Analysis failed for %s: %s", tracklist_id, exc)
+        if self.request.retries >= self.max_retries:
+            set_tracklist_progress(
+                tracklist_id,
+                status="failed",
+                progress_percent=100,
+                progress_message=f"Analysis failed: {exc}",
+            )
+            if audio_path and os.path.exists(audio_path):
+                os.remove(audio_path)
         for seg in segments:
             if os.path.exists(seg["path"]):
                 os.remove(seg["path"])
         raise self.retry(exc=exc, countdown=15)
-
-    finally:
-        if audio_path and os.path.exists(audio_path):
-            os.remove(audio_path)
 
 
 def _detect_transitions_sbic(audio, sample_rate: int) -> list:
@@ -68,10 +124,11 @@ def _detect_transitions_sbic(audio, sample_rate: int) -> list:
     hop_size = 1024
     sbic = es.SBic(
         cpw=1.5,
-        increase=1.25,
-        minSegLen=10,
-        size1=1000,
-        size2=500,
+        inc1=60,
+        inc2=20,
+        minLength=10,
+        size1=300,
+        size2=200,
     )
 
     mfcc_extractor = es.MFCC()
@@ -156,3 +213,29 @@ def _extract_snippet(source_path: str, start: float, duration: float, output_pat
     except Exception as exc:
         logger.error("ffmpeg failed: %s", exc)
         return False
+
+
+def _enforce_dj_track_spacing(transitions: list[float]) -> list[float]:
+    if not transitions:
+        return []
+
+    sorted_transitions = sorted(set(float(t) for t in transitions))
+    selected = [sorted_transitions[0]]
+    remaining = sorted_transitions[1:]
+
+    while remaining:
+        last = selected[-1]
+        in_window = [
+            t for t in remaining if DJ_MIN_TRACK_GAP <= (t - last) <= DJ_MAX_TRACK_GAP
+        ]
+        if in_window:
+            best = min(in_window, key=lambda t: abs((t - last) - DJ_IDEAL_TRACK_GAP))
+        else:
+            far_candidates = [t for t in remaining if (t - last) > DJ_MAX_TRACK_GAP]
+            if not far_candidates:
+                break
+            best = far_candidates[0]
+        selected.append(best)
+        remaining = [t for t in remaining if t > best]
+
+    return selected

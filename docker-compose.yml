@@ -15,6 +15,15 @@ services:
       timeout: 5s
       retries: 5
 
+  migrate:
+    build: .
+    command: alembic upgrade head
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres:5432/trackid
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     command: redis-server --maxmemory-policy allkeys-lru
@@ -33,11 +42,15 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@postgres:5432/trackid
       - RAMDISK_PATH=/app/ramdisk
+    volumes:
+      - ramdisk_data:/app/ramdisk
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 15s
@@ -51,13 +64,15 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@postgres:5432/trackid
       - RAMDISK_PATH=/app/ramdisk
+    volumes:
+      - ramdisk_data:/app/ramdisk
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    tmpfs:
-      - /app/ramdisk:size=4g
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
       interval: 30s
@@ -71,13 +86,15 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@postgres:5432/trackid
       - RAMDISK_PATH=/app/ramdisk
+    volumes:
+      - ramdisk_data:/app/ramdisk
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    tmpfs:
-      - /app/ramdisk:size=4g
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
       interval: 30s
@@ -91,13 +108,15 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=postgresql://user:password@postgres:5432/trackid
       - RAMDISK_PATH=/app/ramdisk
+    volumes:
+      - ramdisk_data:/app/ramdisk
     depends_on:
       redis:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    tmpfs:
-      - /app/ramdisk:size=4g
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
       interval: 30s
@@ -125,3 +144,4 @@ services:
 
 volumes:
   postgres_data:
+  ramdisk_data:

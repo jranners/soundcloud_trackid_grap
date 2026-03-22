@@ -18,8 +18,15 @@ class Tracklist(Base):
     __tablename__ = "tracklists"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id = Column(String, nullable=True, unique=True)
     url = Column(String, nullable=False)
+    set_title = Column(String, nullable=True)
+    cover_url = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending")
+    progress_percent = Column(Float, nullable=False, default=0.0)
+    progress_message = Column(String, nullable=True)
+    total_segments = Column(Float, nullable=True)
+    processed_segments = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 

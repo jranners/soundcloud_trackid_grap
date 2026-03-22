@@ -4,6 +4,7 @@ import os
 from celery.utils.log import get_task_logger
 
 from app.celery_app import celery_app
+from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
 
@@ -21,7 +22,17 @@ def identify_tracks(self, analysis_result: dict) -> dict:
     identifications = []
 
     try:
-        for segment in segments:
+        total_segments = len(segments)
+        set_tracklist_progress(
+            tracklist_id,
+            status="fingerprinting",
+            total_segments=total_segments,
+            processed_segments=0,
+            progress_percent=70,
+            progress_message=f"Identifying tracks 0/{total_segments}",
+        )
+
+        for idx, segment in enumerate(segments, start=1):
             snippet_path = segment["path"]
             timestamp = segment["timestamp"]
 
@@ -38,10 +49,25 @@ def identify_tracks(self, analysis_result: dict) -> dict:
                 logger.error("Identification failed for %s: %s", snippet_path, exc)
                 identifications.append({"timestamp": timestamp, "result": None})
 
+            fingerprint_ratio = (idx / total_segments) if total_segments else 1.0
+            set_tracklist_progress(
+                tracklist_id,
+                processed_segments=idx,
+                progress_percent=70 + (fingerprint_ratio * 25),
+                progress_message=f"Identifying tracks {idx}/{total_segments}",
+            )
+
         return {"tracklist_id": tracklist_id, "identifications": identifications}
 
     except Exception as exc:
         logger.error("Fingerprint task failed for %s: %s", tracklist_id, exc)
+        if self.request.retries >= self.max_retries:
+            set_tracklist_progress(
+                tracklist_id,
+                status="failed",
+                progress_percent=100,
+                progress_message=f"Fingerprint failed: {exc}",
+            )
         raise self.retry(exc=exc, countdown=20)
 
     finally:

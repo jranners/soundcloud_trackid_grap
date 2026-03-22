@@ -9,6 +9,7 @@ from app.celery_app import celery_app
 from app.config import settings
 from app.database import get_db
 from app.models import Track, Tracklist
+from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
 
@@ -58,6 +59,10 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
                 )
 
             tracklist.status = "completed"
+            tracklist.progress_percent = 100.0
+            tracklist.progress_message = "Completed"
+            tracklist.processed_segments = len(identifications)
+            tracklist.total_segments = len(identifications)
             tracklist.updated_at = datetime.now(timezone.utc)
             db.commit()
             logger.info(
@@ -74,6 +79,12 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
 
     except Exception as exc:
         logger.error("Aggregation failed for %s: %s", tracklist_id, exc)
+        set_tracklist_progress(
+            tracklist_id,
+            status="failed",
+            progress_percent=100,
+            progress_message=f"Failed: {exc}",
+        )
         with get_db() as db:
             tracklist = db.get(Tracklist, uuid.UUID(tracklist_id))
             if tracklist:
