@@ -33,6 +33,7 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
 
             identifications.sort(key=lambda x: x["timestamp"])
 
+            tracks_to_add = []
             for item in identifications:
                 timestamp = item["timestamp"]
                 raw = item.get("result") or {}
@@ -67,7 +68,7 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
                     raw_matches_json=raw_matches_json,
                     created_at=datetime.now(timezone.utc),
                 )
-                db.add(track)
+                tracks_to_add.append(track)
                 saved_tracks.append(
                     {
                         "title": title,
@@ -79,6 +80,7 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
                     }
                 )
 
+            db.add_all(tracks_to_add)
             tracklist.status = "completed"
             tracklist.progress_percent = 100.0
             tracklist.progress_message = "Completed"
