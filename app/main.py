@@ -209,6 +209,10 @@ def get_tracklist(tracklist_id: str):
                 "timestamp_end": t.timestamp_end,
                 "snippet_path": t.snippet_path,
                 "raw_result": t.raw_result,
+                "confidence_score": t.confidence_score,
+                "num_snippets": t.num_snippets,
+                "num_consistent_snippets": t.num_consistent_snippets,
+                "raw_matches_json": t.raw_matches_json,
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             }
             for t in tracklist.tracks

@@ -608,6 +608,47 @@ main {
   font-style: italic;
 }
 
+.track-confidence {
+  margin-top: 0.65rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.confidence-value {
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+
+.confidence-meta {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.confidence-warning {
+  font-size: 0.68rem;
+  color: #fff;
+  background: rgba(232, 64, 64, 0.85);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+  font-weight: 700;
+}
+
+.track-confidence.high .confidence-value {
+  color: var(--success);
+}
+
+.track-confidence.mid .confidence-value {
+  color: #f6b73c;
+}
+
+.track-confidence.low .confidence-value {
+  color: var(--error);
+}
+
 .track-link {
   display: inline-flex;
   align-items: center;

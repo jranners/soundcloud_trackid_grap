@@ -5,6 +5,13 @@ function fmt(sec) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function formatConfidencePct(value) {
+  const num = Number(value ?? 0);
+  if (!Number.isFinite(num)) return "0%";
+  const pct = Math.max(0, Math.min(100, Math.round(num * 100)));
+  return `${pct}%`;
+}
+
 function escHtml(value) {
   const str = String(value ?? "");
   return str
@@ -372,6 +379,11 @@ function renderTracks(tracks, expanded) {
     const start = fmt(track.timestamp_start);
     const end = fmt(track.timestamp_end);
     const unknown = track.artist ? "" : "unknown";
+    const confidence = Number(track.confidence_score ?? 0);
+    const lowConfidence = confidence < 0.6;
+    const confidenceClass = lowConfidence ? "low" : confidence < 0.8 ? "mid" : "high";
+    const confidenceLabel = formatConfidencePct(confidence);
+    const snippetsInfo = `${Number(track.num_consistent_snippets ?? 0)}/${Number(track.num_snippets ?? 0)} snippets`;
     
     let linkHtml = "";
     if (track.raw_result && track.raw_result.track) {
@@ -398,10 +410,15 @@ function renderTracks(tracks, expanded) {
            <div class="track-info">
              <div class="track-title">${title}</div>
              <div class="track-artist ${unknown}">${artist}</div>
-           </div>
-         </div>
-         ${linkHtml ? `<div style="display:flex; justify-content:flex-end; width:100%; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">${linkHtml}</div>` : ''}
-      </div>
+            </div>
+          </div>
+          <div class="track-confidence ${confidenceClass}">
+            <span class="confidence-value">${confidenceLabel}</span>
+            <span class="confidence-meta">${snippetsInfo}</span>
+            ${lowConfidence ? '<span class="confidence-warning">Unsicher</span>' : ''}
+          </div>
+          ${linkHtml ? `<div style="display:flex; justify-content:flex-end; width:100%; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">${linkHtml}</div>` : ''}
+       </div>
     `;
   }).join("");
 

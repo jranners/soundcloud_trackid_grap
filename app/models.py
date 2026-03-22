@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
 
@@ -44,6 +44,10 @@ class Track(Base):
     timestamp_end = Column(Float, nullable=True)
     snippet_path = Column(String, nullable=True)
     raw_result = Column(JSON, nullable=True)
+    confidence_score = Column(Float, nullable=False, default=0.0)
+    num_snippets = Column(Integer, nullable=False, default=0)
+    num_consistent_snippets = Column(Integer, nullable=False, default=0)
+    raw_matches_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_utcnow)
 
     tracklist = relationship("Tracklist", back_populates="tracks")
