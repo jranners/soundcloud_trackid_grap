@@ -16,8 +16,9 @@ def tracklist_id():
     return "tracklist-test-id"
 
 
-def test_is_uncertain_result_for_zero_low_or_missing_metadata():
-    assert _is_uncertain_result({"track": {"title": "Song", "subtitle": "Artist", "score": 0}}) is True
+def test_is_uncertain_result_with_invalid_conditions():
+    assert _is_uncertain_result({"track": {"title": "Song", "subtitle": "Artist", "score": 0.0}}) is True
+    assert _is_uncertain_result({"track": {"title": "Song", "subtitle": "Artist", "score": -0.5}}) is True
     assert _is_uncertain_result({"track": {"title": "Song", "subtitle": "Artist", "score": 0.05}}) is True
     assert _is_uncertain_result({"track": {"score": 0.8}}) is True
 
@@ -69,6 +70,8 @@ def test_identify_tracks_consistent_a_b_gives_high_confidence(tracklist_id, tmp_
 
     async def fake_identify(_path):
         return ShazamResult(
+            # Intentionally low score to force fallback while verifying that
+            # identical A/B identity still yields high aggregate confidence.
             result={"track": {"title": "Same Song", "subtitle": "Same Artist", "score": 0.1}},
             no_match=False,
         )
@@ -106,6 +109,8 @@ def test_identify_tracks_inconsistent_a_b_uses_best_candidate(tracklist_id, tmp_
     async def fake_identify(path):
         if path.endswith("snippet_A.wav"):
             return ShazamResult(
+                # Intentionally uncertain A to force B-call and exercise disagreement
+                # winner selection path.
                 result={"track": {"title": "Song A", "subtitle": "Artist A", "score": 0.1}},
                 no_match=False,
             )
@@ -124,7 +129,7 @@ def test_identify_tracks_inconsistent_a_b_uses_best_candidate(tracklist_id, tmp_
     assert item["num_snippets"] == 2
 
 
-def test_identify_tracks_only_a_used_and_confidence_09(tracklist_id, tmp_path):
+def test_identify_tracks_only_a_used_with_high_confidence(tracklist_id, tmp_path):
     snippet_a = tmp_path / "snippet_A.wav"
     snippet_b = tmp_path / "snippet_B.wav"
     snippet_a.write_bytes(b"a")
@@ -161,7 +166,7 @@ def test_identify_tracks_only_a_used_and_confidence_09(tracklist_id, tmp_path):
     assert mocked_identify.call_count == 1
 
 
-def test_identify_tracks_no_valid_snippet_candidates_logs_warning_and_empty_result(tracklist_id, caplog):
+def test_identify_tracks_missing_candidates_logs_warning(tracklist_id, caplog):
     analysis = {
         "tracklist_id": tracklist_id,
         "segments": [
@@ -170,8 +175,18 @@ def test_identify_tracks_no_valid_snippet_candidates_logs_warning_and_empty_resu
                 "timestamp": 42.0,
                 "duration": 120.0,
                 "candidates": [
-                    {"path": "/does/not/exist/a.wav", "snippet_type": "A", "segment_index": 0},
-                    {"path": "/does/not/exist/b.wav", "snippet_type": "B", "segment_index": 0},
+                    {
+                        "path": "/does/not/exist/a.wav",
+                        "snippet_type": "A",
+                        "segment_index": 0,
+                        "snippet_start": 2.0,
+                    },
+                    {
+                        "path": "/does/not/exist/b.wav",
+                        "snippet_type": "B",
+                        "segment_index": 0,
+                        "snippet_start": 62.0,
+                    },
                 ],
             }
         ],

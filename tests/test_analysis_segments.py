@@ -16,7 +16,7 @@ def test_merge_short_segments_handles_start_middle_end_and_consecutive_short_seg
     assert all((end - start) >= MIN_SEGMENT_DURATION for start, end in merged)
 
 
-def test_merge_short_segments_no_short_segments_remain_unless_total_mix_too_short():
+def test_merge_short_segments_respects_min_duration_unless_mix_too_short():
     merged = merge_short_segments(
         [(0.0, 15.0), (15.0, 30.0), (30.0, 120.0)],
         min_duration=MIN_SEGMENT_DURATION,
