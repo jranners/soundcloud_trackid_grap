@@ -1,3 +1,7 @@
+const LOW_CONFIDENCE_THRESHOLD = 0.6;
+const HIGH_CONFIDENCE_THRESHOLD = 0.8;
+const MIN_CONSISTENT_SNIPPETS = 2;
+
 function fmt(sec) {
   if (sec == null || Number.isNaN(Number(sec))) return "--:--";
   const m = Math.floor(Number(sec) / 60);
@@ -14,7 +18,7 @@ function formatConfidencePct(value) {
 
 function getSafeTrackCount(tracks) {
   if (!Array.isArray(tracks)) return 0;
-  return tracks.filter((track) => Number(track?.confidence_score ?? 0) >= 0.8).length;
+  return tracks.filter((track) => Number(track?.confidence_score ?? 0) >= HIGH_CONFIDENCE_THRESHOLD).length;
 }
 
 function escHtml(value) {
@@ -292,7 +296,9 @@ function renderJobCard(job) {
   const tracksHtml = Array.isArray(tracks) ? renderTracks(tracks, isExpanded) : "";
   const countText = Array.isArray(tracks) ? `${tracks.length} track${tracks.length === 1 ? "" : "s"}` : "";
   const safeTrackCount = getSafeTrackCount(tracks);
-  const safeTrackText = Array.isArray(tracks) ? `${safeTrackCount} sicher erkannt` : "";
+  const safeTrackText = Array.isArray(tracks)
+    ? `${safeTrackCount} confident track${safeTrackCount === 1 ? "" : "s"}`
+    : "";
 
   const taskLabel = escHtml(job.taskId || job.tracklistId);
   return `
@@ -391,8 +397,8 @@ function renderTracks(tracks, expanded) {
     const unknown = track.artist ? "" : "unknown";
     const confidence = Number(track.confidence_score ?? 0);
     const consistentSnippets = Number(track.num_consistent_snippets ?? 0);
-    const lowConfidence = confidence < 0.6 || consistentSnippets < 2;
-    const confidenceClass = lowConfidence ? "low" : confidence < 0.8 ? "mid" : "high";
+    const lowConfidence = confidence < LOW_CONFIDENCE_THRESHOLD || consistentSnippets < MIN_CONSISTENT_SNIPPETS;
+    const confidenceClass = lowConfidence ? "low" : confidence < HIGH_CONFIDENCE_THRESHOLD ? "mid" : "high";
     const confidenceLabel = formatConfidencePct(confidence);
     const snippetsInfo = `${Number(track.num_consistent_snippets ?? 0)}/${Number(track.num_snippets ?? 0)} snippets`;
     const matchDetails = Array.isArray(track.raw_matches_json) ? track.raw_matches_json : [];
