@@ -38,7 +38,7 @@
 
     <!-- URL input card -->
     <div class="card">
-      <label class="form-label" for="url-input">SOUNDCLOUD URL HIER EINFÜGEN</label>
+      <label class="form-label" for="url-input">SoundCloud URL</label>
       <div class="input-row">
         <input
           id="url-input"
@@ -48,12 +48,12 @@
           autocomplete="off"
           spellcheck="false"
         />
-        <button id="analyze-btn" class="btn btn-primary" aria-busy="false">
+        <button id="analyze-btn" class="btn btn-primary">
           <!-- Search / play icon -->
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
             <path d="M10 3a7 7 0 1 0 4.47 12.47l4.78 4.78 1.41-1.41-4.78-4.78A7 7 0 0 0 10 3zm0 2a5 5 0 1 1 0 10A5 5 0 0 1 10 5z"/>
           </svg>
-          Analysieren
+          Analyze
         </button>
       </div>
       <p id="error-msg" class="error-message"></p>
@@ -65,8 +65,6 @@
         <span id="job-count" class="badge">0 aktiv</span>
       </div>
       <div class="set-filter-row">
-
-        <label for="set-search-input" class="form-label sr-only">SETS FILTERN</label>
         <input
           id="set-search-input"
           class="url-input"
