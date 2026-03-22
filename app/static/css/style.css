@@ -466,6 +466,20 @@ main {
   font-weight: 700;
 }
 
+.job-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.badge-success {
+  color: var(--success);
+  border-color: var(--success);
+  background: rgba(29, 185, 84, 0.14);
+}
+
 /* Track list */
 .track-list {
   display: grid;
@@ -647,6 +661,23 @@ main {
 
 .track-confidence.low .confidence-value {
   color: var(--error);
+}
+
+.track-debug {
+  margin-top: 0.45rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.track-debug summary {
+  cursor: pointer;
+  color: var(--sc-orange);
+  font-weight: 600;
+}
+
+.track-debug ul {
+  margin-top: 0.35rem;
+  margin-left: 1rem;
 }
 
 .track-link {

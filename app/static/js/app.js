@@ -12,6 +12,11 @@ function formatConfidencePct(value) {
   return `${pct}%`;
 }
 
+function getSafeTrackCount(tracks) {
+  if (!Array.isArray(tracks)) return 0;
+  return tracks.filter((track) => Number(track?.confidence_score ?? 0) >= 0.8).length;
+}
+
 function escHtml(value) {
   const str = String(value ?? "");
   return str
@@ -286,6 +291,8 @@ function renderJobCard(job) {
   const isExpanded = expandedTracklists.has(job.tracklistId);
   const tracksHtml = Array.isArray(tracks) ? renderTracks(tracks, isExpanded) : "";
   const countText = Array.isArray(tracks) ? `${tracks.length} track${tracks.length === 1 ? "" : "s"}` : "";
+  const safeTrackCount = getSafeTrackCount(tracks);
+  const safeTrackText = Array.isArray(tracks) ? `${safeTrackCount} sicher erkannt` : "";
 
   const taskLabel = escHtml(job.taskId || job.tracklistId);
   return `
@@ -295,7 +302,10 @@ function renderJobCard(job) {
           <span class="badge">Task</span>
           <span class="job-id">${taskLabel}</span>
         </div>
-        ${countText ? `<span class="badge">${countText}</span>` : ""}
+        <div class="job-badges">
+          ${countText ? `<span class="badge">${countText}</span>` : ""}
+          ${safeTrackText ? `<span class="badge badge-success">${safeTrackText}</span>` : ""}
+        </div>
       </div>
 
       <div class="set-header">
@@ -380,10 +390,24 @@ function renderTracks(tracks, expanded) {
     const end = fmt(track.timestamp_end);
     const unknown = track.artist ? "" : "unknown";
     const confidence = Number(track.confidence_score ?? 0);
-    const lowConfidence = confidence < 0.6;
+    const consistentSnippets = Number(track.num_consistent_snippets ?? 0);
+    const lowConfidence = confidence < 0.6 || consistentSnippets < 2;
     const confidenceClass = lowConfidence ? "low" : confidence < 0.8 ? "mid" : "high";
     const confidenceLabel = formatConfidencePct(confidence);
     const snippetsInfo = `${Number(track.num_consistent_snippets ?? 0)}/${Number(track.num_snippets ?? 0)} snippets`;
+    const matchDetails = Array.isArray(track.raw_matches_json) ? track.raw_matches_json : [];
+    const debugRows = matchDetails
+      .map((entry) => {
+        const snippetType = escHtml(entry?.snippet_type || "snippet");
+        const resultTrack = entry?.result?.track || {};
+        const resultTitle = escHtml(resultTrack.title || "Unknown title");
+        const resultArtist = escHtml(resultTrack.subtitle || "Unknown artist");
+        return `<li><strong>${snippetType}:</strong> ${resultArtist} — ${resultTitle}</li>`;
+      })
+      .join("");
+    const debugHtml = debugRows
+      ? `<details class="track-debug"><summary>Details</summary><ul>${debugRows}</ul></details>`
+      : "";
     
     let linkHtml = "";
     if (track.raw_result && track.raw_result.track) {
@@ -412,13 +436,14 @@ function renderTracks(tracks, expanded) {
              <div class="track-artist ${unknown}">${artist}</div>
             </div>
           </div>
-          <div class="track-confidence ${confidenceClass}">
-            <span class="confidence-value">${confidenceLabel}</span>
-            <span class="confidence-meta">${snippetsInfo}</span>
-            ${lowConfidence ? '<span class="confidence-warning">Unsicher</span>' : ''}
-          </div>
-          ${linkHtml ? `<div style="display:flex; justify-content:flex-end; width:100%; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">${linkHtml}</div>` : ''}
-       </div>
+           <div class="track-confidence ${confidenceClass}">
+             <span class="confidence-value">${confidenceLabel}</span>
+             <span class="confidence-meta">${snippetsInfo}</span>
+             ${lowConfidence ? '<span class="confidence-warning">Unsicher</span>' : ''}
+           </div>
+           ${debugHtml}
+           ${linkHtml ? `<div style="display:flex; justify-content:flex-end; width:100%; border-top:1px solid rgba(255,255,255,0.05); padding-top:10px;">${linkHtml}</div>` : ''}
+        </div>
     `;
   }).join("");
 
