@@ -1,5 +1,6 @@
 import os
 import uuid
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -139,9 +140,11 @@ def test_ffmpeg_conversion_called(tmp_path):
 
 def test_sbic_uses_current_parameter_names(tmp_path, tracklist_id, download_result):
     mock_es = _make_mock_es()
+    mock_essentia_module = ModuleType("essentia")
+    mock_essentia_module.standard = mock_es
 
     with (
-        patch.dict("sys.modules", {"essentia": MagicMock(), "essentia.standard": mock_es}),
+        patch.dict("sys.modules", {"essentia": mock_essentia_module, "essentia.standard": mock_es}),
         patch("app.tasks.analysis.settings") as mock_settings,
         patch("app.tasks.analysis._extract_snippet", return_value=True),
     ):
@@ -174,3 +177,27 @@ def test_enforce_dj_track_spacing_returns_empty_for_empty():
     from app.tasks.analysis import _enforce_dj_track_spacing
 
     assert _enforce_dj_track_spacing([]) == []
+
+
+def test_merge_short_segments_enforces_min_duration():
+    from app.tasks.analysis import merge_short_segments
+
+    merged = merge_short_segments(
+        [(0.0, 30.0), (30.0, 90.0), (90.0, 120.0), (120.0, 190.0)],
+        min_duration=45.0,
+    )
+    durations = [end - start for start, end in merged]
+
+    assert all(d >= 45.0 for d in durations)
+
+
+def test_merge_short_segments_handles_cascading_short_segments():
+    from app.tasks.analysis import merge_short_segments
+
+    merged = merge_short_segments(
+        [(0.0, 20.0), (20.0, 40.0), (40.0, 60.0), (60.0, 160.0)],
+        min_duration=45.0,
+    )
+    durations = [end - start for start, end in merged]
+
+    assert all(d >= 45.0 for d in durations[:-1])
