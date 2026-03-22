@@ -34,27 +34,33 @@ def identify_tracks(self, analysis_result: dict) -> dict:
 
         for idx, segment in enumerate(segments, start=1):
             candidates = segment.get("candidates", [])
-            timestamp = segment["timestamp"]
+            if not candidates and segment.get("path"):
+                candidates = [{"path": segment.get("path"), "offset": 0}]
+            timestamp = segment.get("timestamp", segment.get("start_time", 0.0))
             
             identified_result = None
+            attempted_candidate = False
             for candidate in candidates:
                 snippet_path = candidate.get("path", "")
                 if not os.path.exists(snippet_path):
                     continue
+                attempted_candidate = True
                 try:
                     result = asyncio.run(_async_identify(snippet_path))
+                    identified_result = result
                     # shazamio returns a structure where 'track' exists if identified
                     if result and "track" in result:
-                        identified_result = result
                         logger.info("Identified track at %.1fs using offset %+d: %s", timestamp, candidate.get("offset", 0), result)
                         break
                 except Exception as exc:
                     logger.error("Identification failed for %s: %s", snippet_path, exc)
             
-            if identified_result:
-                identifications.append({"timestamp": timestamp, "result": identified_result})
-            else:
+            if identified_result is None and attempted_candidate:
+                identified_result = {}
+
+            if not identified_result:
                 logger.warning("No candidate recognized for transition at %.1fs", timestamp)
+            identifications.append({"timestamp": timestamp, "result": identified_result})
 
             fingerprint_ratio = (idx / total_segments) if total_segments else 1.0
             set_tracklist_progress(
@@ -79,6 +85,9 @@ def identify_tracks(self, analysis_result: dict) -> dict:
 
     finally:
         for segment in segments:
+            path = segment.get("path", "")
+            if path and os.path.exists(path):
+                os.remove(path)
             for candidate in segment.get("candidates", []):
                 path = candidate.get("path", "")
                 if path and os.path.exists(path):
