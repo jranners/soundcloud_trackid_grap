@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.tasks.fingerprint import SegmentIdentifyAttempt, ShazamResult
+
 
 @pytest.fixture()
 def tracklist_id():
@@ -336,3 +338,94 @@ def test_budget_exhausted_mid_segment_skips_fallback(tracklist_id, tmp_path):
     assert call_paths == [str(snippet_a)]
     assert result["identifications"][0]["num_snippets"] == 1
     assert result["identifications"][0]["result"] == {}
+
+
+def test_identify_tracks_uses_segment_runner_and_payload_shape_unchanged(tracklist_id, tmp_path):
+    snippet_a1 = tmp_path / f"{tracklist_id}_snippet_0_A.wav"
+    snippet_b1 = tmp_path / f"{tracklist_id}_snippet_0_B.wav"
+    snippet_a2 = tmp_path / f"{tracklist_id}_snippet_1_A.wav"
+    snippet_b2 = tmp_path / f"{tracklist_id}_snippet_1_B.wav"
+    for p in (snippet_a1, snippet_b1, snippet_a2, snippet_b2):
+        p.write_bytes(b"wav")
+
+    analysis = {
+        "tracklist_id": tracklist_id,
+        "segments": [
+            {
+                "segment_index": 0,
+                "timestamp": 0.0,
+                "duration": 120.0,
+                "candidates": [
+                    {"path": str(snippet_a1), "snippet_type": "A", "segment_index": 0, "snippet_start": 2.0},
+                    {"path": str(snippet_b1), "snippet_type": "B", "segment_index": 0, "snippet_start": 62.0},
+                ],
+            },
+            {
+                "segment_index": 1,
+                "timestamp": 60.0,
+                "duration": 120.0,
+                "candidates": [
+                    {"path": str(snippet_a2), "snippet_type": "A", "segment_index": 1, "snippet_start": 62.0},
+                    {"path": str(snippet_b2), "snippet_type": "B", "segment_index": 1, "snippet_start": 122.0},
+                ],
+            },
+        ],
+    }
+
+    def fake_runner(segment, candidate_a, candidate_b, calls_used, max_calls, segment_index_fallback=None):
+        attempts = []
+        if candidate_a is not None and calls_used < max_calls:
+            calls_used += 1
+            attempts.append(
+                SegmentIdentifyAttempt(
+                    candidate=candidate_a,
+                    result=ShazamResult(
+                        result={"track": {"title": f"T{segment['segment_index']}", "subtitle": "Artist"}},
+                        no_match=False,
+                    ),
+                )
+            )
+        if (
+            candidate_b is not None
+            and calls_used < max_calls
+            and segment.get("duration", 0) >= 90.0
+            and segment["segment_index"] == 0
+        ):
+            calls_used += 1
+            attempts.append(
+                SegmentIdentifyAttempt(
+                    candidate=candidate_b,
+                    result=ShazamResult(
+                        result={"track": {"title": f"T{segment['segment_index']}", "subtitle": "Artist"}},
+                        no_match=False,
+                    ),
+                )
+            )
+        return attempts, calls_used
+
+    with (
+        patch("app.tasks.fingerprint.run_identify_snippets_for_segment", side_effect=fake_runner) as runner_mock,
+        patch("app.tasks.fingerprint.asyncio.run") as asyncio_run_mock,
+        patch("app.tasks.fingerprint.settings") as mock_settings,
+    ):
+        mock_settings.MAX_SHAZAM_CALLS_PER_ANALYSIS = 3
+        from app.tasks.fingerprint import identify_tracks
+
+        result = identify_tracks.__wrapped__(analysis)
+
+    assert runner_mock.call_count == 2
+    assert asyncio_run_mock.call_count == 0
+    assert result["tracklist_id"] == tracklist_id
+    assert len(result["identifications"]) == 2
+    for item in result["identifications"]:
+        assert set(item.keys()) == {
+            "segment_index",
+            "timestamp",
+            "result",
+            "confidence_score",
+            "num_snippets",
+            "num_consistent_snippets",
+            "raw_matches_json",
+        }
+    assert result["identifications"][0]["num_snippets"] == 2
+    assert result["identifications"][1]["num_snippets"] == 1
