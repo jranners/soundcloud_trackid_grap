@@ -33,12 +33,13 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
 
             identifications.sort(key=lambda x: x["timestamp"])
 
-            last_title = None
-            last_artist = None
-
             for item in identifications:
                 timestamp = item["timestamp"]
                 raw = item.get("result") or {}
+                confidence_score = float(item.get("confidence_score") or 0.0)
+                num_snippets = int(item.get("num_snippets") or 0)
+                num_consistent_snippets = int(item.get("num_consistent_snippets") or 0)
+                raw_matches_json = item.get("raw_matches_json")
 
                 title = None
                 artist = None
@@ -52,12 +53,6 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
                 # Handle deduplication and missing text
                 if not title and not artist:
                     pass 
-                
-                if title == last_title and artist == last_artist and title is not None:
-                    continue
-                    
-                last_title = title
-                last_artist = artist
 
                 track = Track(
                     id=uuid.uuid4(),
@@ -66,11 +61,22 @@ def aggregate_results(self, fingerprint_result: dict) -> dict:
                     artist=artist,
                     timestamp_start=timestamp,
                     raw_result=raw if raw else None,
+                    confidence_score=confidence_score,
+                    num_snippets=num_snippets,
+                    num_consistent_snippets=num_consistent_snippets,
+                    raw_matches_json=raw_matches_json,
                     created_at=datetime.now(timezone.utc),
                 )
                 db.add(track)
                 saved_tracks.append(
-                    {"title": title, "artist": artist, "timestamp_start": timestamp}
+                    {
+                        "title": title,
+                        "artist": artist,
+                        "timestamp_start": timestamp,
+                        "confidence_score": confidence_score,
+                        "num_snippets": num_snippets,
+                        "num_consistent_snippets": num_consistent_snippets,
+                    }
                 )
 
             tracklist.status = "completed"

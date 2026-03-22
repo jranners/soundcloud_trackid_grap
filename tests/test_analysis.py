@@ -59,7 +59,7 @@ def test_sbic_detects_transitions(tmp_path, tracklist_id, download_result):
     assert isinstance(result["segments"], list)
 
 
-def test_12s_snippets_extracted(tmp_path, tracklist_id, download_result):
+def test_8s_snippets_extracted(tmp_path, tracklist_id, download_result):
     mock_es = _make_mock_es()
     extracted_calls = []
 
@@ -78,7 +78,7 @@ def test_12s_snippets_extracted(tmp_path, tracklist_id, download_result):
         segment_audio.__wrapped__(download_result)
 
     for start, duration, _ in extracted_calls:
-        assert duration == 12
+        assert duration == 8
 
 
 def test_fallback_when_no_transitions(tmp_path, tracklist_id, download_result):

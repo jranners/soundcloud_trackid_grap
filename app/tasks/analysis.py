@@ -12,8 +12,7 @@ from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
 
-SNIPPET_DURATION = 12  # seconds
-OFFSET_AFTER_TRANSITION = 30  # seconds
+SNIPPET_DURATION = 8  # seconds
 DJ_MIN_TRACK_GAP = 75  # seconds
 DJ_IDEAL_TRACK_GAP = 105  # seconds
 DJ_MAX_TRACK_GAP = 150  # seconds
@@ -118,17 +117,29 @@ def segment_audio(self, download_result: dict) -> dict:
                 end_time=end_time,
             )
             candidates = []
-            for offset in [OFFSET_AFTER_TRANSITION, OFFSET_AFTER_TRANSITION + 15, OFFSET_AFTER_TRANSITION - 15]:
-                snippet_start = start_time + offset
-                if snippet_start < 0:
+            segment_duration = max(0.0, end_time - start_time)
+            snippet_specs = [
+                ("A", start_time + 2.0),
+                ("B", start_time + min(segment_duration / 2.0, 90.0)),
+            ]
+            for snippet_type, snippet_start in snippet_specs:
+                if snippet_start < 0 or snippet_start >= end_time:
                     continue
                 snippet_path = os.path.join(
                     settings.RAMDISK_PATH,
-                    f"{tracklist_id}_snippet_{int(start_time)}_{offset}.wav",
+                    f"{tracklist_id}_snippet_{idx - 1}_{snippet_type}.wav",
                 )
                 success = _extract_snippet(audio_path, snippet_start, SNIPPET_DURATION, snippet_path)
                 if success:
-                    candidates.append({"path": snippet_path, "offset": offset})
+                    candidates.append(
+                        {
+                            "path": snippet_path,
+                            "offset": float(snippet_start - start_time),
+                            "snippet_type": snippet_type,
+                            "segment_index": idx - 1,
+                            "snippet_start": float(snippet_start),
+                        }
+                    )
             segment_features.candidates = candidates
             segments.append(segment_features.to_payload())
                 

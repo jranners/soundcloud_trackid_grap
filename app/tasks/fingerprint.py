@@ -1,5 +1,6 @@
 import asyncio
 import os
+from collections import Counter
 
 from celery.utils.log import get_task_logger
 
@@ -7,6 +8,58 @@ from app.celery_app import celery_app
 from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
+
+
+def _extract_identity(result: dict | None) -> tuple[str | None, str | None]:
+    if not isinstance(result, dict):
+        return None, None
+    track_data = result.get("track", {}) or {}
+    title = track_data.get("title")
+    artist = track_data.get("subtitle")
+    if not title and not artist:
+        return None, None
+    return title, artist
+
+
+def _aggregate_segment_matches(matches: list[dict]) -> dict:
+    num_snippets = len(matches)
+    recognized = []
+    for item in matches:
+        title, artist = _extract_identity(item.get("result"))
+        if title or artist:
+            recognized.append((title or "", artist or ""))
+
+    if not recognized:
+        return {
+            "result": {} if num_snippets else None,
+            "confidence_score": 0.0,
+            "num_snippets": num_snippets,
+            "num_consistent_snippets": 0,
+            "raw_matches_json": matches,
+        }
+
+    counts = Counter(recognized)
+    selected_identity, consistent_count = counts.most_common(1)[0]
+    selected_result = next(
+        (
+            item.get("result")
+            for item in matches
+            if _extract_identity(item.get("result")) == selected_identity
+        ),
+        {},
+    )
+    if consistent_count == num_snippets:
+        confidence = 0.95 if num_snippets > 1 else 0.9
+    else:
+        confidence = min(0.89, consistent_count / max(1, num_snippets))
+
+    return {
+        "result": selected_result,
+        "confidence_score": round(float(confidence), 3),
+        "num_snippets": num_snippets,
+        "num_consistent_snippets": int(consistent_count),
+        "raw_matches_json": matches,
+    }
 
 
 @celery_app.task(
@@ -37,12 +90,11 @@ def identify_tracks(self, analysis_result: dict) -> dict:
             # Backward compatibility: older analysis payloads used a flat
             # {"path": "...", "timestamp": ...} segment format.
             if not candidates and segment.get("path"):
-                candidates = [{"path": segment.get("path"), "offset": 0}]
+                candidates = [{"path": segment.get("path"), "offset": 0, "snippet_type": "legacy"}]
             timestamp = segment.get("timestamp", segment.get("start_time", 0.0))
-            
-            identified_result = None
+
+            snippet_matches = []
             attempted_candidate = False
-            had_unsuccessful_attempt = False
             for candidate in candidates:
                 snippet_path = candidate.get("path", "")
                 if not os.path.exists(snippet_path):
@@ -50,25 +102,38 @@ def identify_tracks(self, analysis_result: dict) -> dict:
                 attempted_candidate = True
                 try:
                     result = asyncio.run(_async_identify(snippet_path))
-                    # shazamio returns a structure where 'track' exists if identified
-                    if result and "track" in result:
-                        identified_result = result
-                        logger.info("Identified track at %.1fs using offset %+d: %s", timestamp, candidate.get("offset", 0), result)
-                        break
-                    had_unsuccessful_attempt = True
+                    snippet_matches.append(
+                        {
+                            "snippet_type": candidate.get("snippet_type"),
+                            "segment_index": candidate.get("segment_index"),
+                            "snippet_start": candidate.get("snippet_start"),
+                            "offset": candidate.get("offset", 0),
+                            "result": result or {},
+                        }
+                    )
                 except Exception as exc:
                     logger.error("Identification failed for %s: %s", snippet_path, exc)
-            
-            # Keep `{}` as explicit "attempted but no Shazam match" sentinel to preserve
-            # existing aggregation/test expectations while distinguishing from "not attempted" (None).
-            if identified_result is None and had_unsuccessful_attempt:
-                identified_result = {}
 
-            if identified_result is None:
+            aggregate = _aggregate_segment_matches(snippet_matches)
+            identified_result = aggregate["result"]
+
+            if not attempted_candidate:
                 logger.warning("No valid snippet candidates for transition at %.1fs", timestamp)
             elif identified_result == {}:
                 logger.warning("No candidate recognized for transition at %.1fs", timestamp)
-            identifications.append({"timestamp": timestamp, "result": identified_result})
+            else:
+                logger.info("Aggregated segment at %.1fs with confidence %.2f", timestamp, aggregate["confidence_score"])
+            identifications.append(
+                {
+                    "segment_index": segment.get("segment_index", idx - 1),
+                    "timestamp": timestamp,
+                    "result": identified_result,
+                    "confidence_score": aggregate["confidence_score"],
+                    "num_snippets": aggregate["num_snippets"],
+                    "num_consistent_snippets": aggregate["num_consistent_snippets"],
+                    "raw_matches_json": aggregate["raw_matches_json"],
+                }
+            )
 
             fingerprint_ratio = (idx / total_segments) if total_segments else 1.0
             set_tracklist_progress(
