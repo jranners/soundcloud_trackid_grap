@@ -1,233 +1,127 @@
-# SoundCloud TrackID Grabber
+# 🎧 SoundCloud TrackID Grabber
 
-A self-hosted service that automatically identifies every track in a SoundCloud mix by downloading the audio, detecting transitions, fingerprinting each segment via the Shazam API, and returning a timestamped tracklist.
+[![Docker](https://img.shields.io/badge/Docker-24+-blue?logo=docker&logoColor=white)](https://www.docker.com/) 
+[![FastAPI](https://img.shields.io/badge/FastAPI-v0.109+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Celery](https://img.shields.io/badge/Celery-v5.3+-37814A?logo=celery&logoColor=white)](https://docs.celeryq.dev/)
+[![Redis](https://img.shields.io/badge/Redis-v7+-DC382D?logo=redis&logoColor=white)](https://redis.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-v16+-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
----
-
-## How It Works
-
-```
-POST /analyze  →  download_audio  →  segment_audio  →  identify_tracks  →  aggregate_results
-                      (yt-dlp)        (Essentia SBIC)     (Shazamio)         (PostgreSQL)
-```
-
-1. **Download** — `yt-dlp` fetches the best-quality audio stream from the given SoundCloud URL and writes it to a RAM-disk.
-2. **Segment** — Essentia's SBIC (Sequential Bayesian Information Criterion) detects musical transitions. If no transitions are found, a beat-tracker + onset-detection fallback is used.
-3. **Fingerprint** — For each detected transition, a 12-second WAV snippet (starting 30 s after the transition) is sent to the Shazam API via `shazamio`.
-4. **Aggregate** — Identified track metadata (title, artist, timestamp) is saved to PostgreSQL and the tracklist status is set to `completed`.
-
-Each step is an independent Celery task running on a dedicated worker queue (`download`, `analysis`, `fingerprint`). Flower is included for real-time task monitoring.
+**SoundCloud TrackID Grabber** is a powerful, self-hosted tool designed for DJs and music lovers. It automatically identifies every track in a SoundCloud mix by downloading the audio, detecting transitions, fingerprinting each segment, and returning a detailed, timestamped tracklist.
 
 ---
 
-## Prerequisites
+## 🖼️ Preview
 
-| Requirement | Version |
-|---|---|
-| Docker | ≥ 24 |
-| Docker Compose | ≥ 2 |
+<div align="center">
+  <img src="assets/dashboard.png" alt="Dashboard Mockup" width="800">
+  <p><em>Premium, glassmorphic dashboard showcasing identified tracks.</em></p>
+</div>
 
-No local Python installation required — everything runs inside Docker.
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/jranners/soundcloud_trackid_grap.git
-cd soundcloud_trackid_grap
-
-# 2. (Optional) Override Flower credentials
-export FLOWER_USER=admin
-export FLOWER_PASSWORD=changeme
-
-# 3. Build and start all services
-docker compose up --build -d
-
-# 4. Check the API is healthy
-curl http://localhost:8000/health
-# → {"status":"ok"}
-```
+<div align="center">
+  <img src="assets/progress.png" alt="Progress Tracker" width="600">
+  <p><em>Real-time progress tracking for background analysis tasks.</em></p>
+</div>
 
 ---
 
-## API Reference
+## ✨ Key Features
 
-### `POST /analyze`
-
-Start a new analysis job for a SoundCloud URL.
-
-**Request body**
-```json
-{ "url": "https://soundcloud.com/artist/mix-title" }
-```
-
-**Response**
-```json
-{
-  "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "tracklist_id": "d290f1ee-6c54-4b01-90e6-d701748f0851"
-}
-```
+- 🚀 **Full Mix Analysis**: Extract complete tracklists from any SoundCloud URL.
+- ➗ **Smart Segmentation**: Uses Essentia’s **Sequential Bayesian Information Criterion (SBIC)** for accurate transition detection between tracks.
+- 🔍 **AI Fingerprinting**: Segments are identified via the **Shazam API** (using `shazamio`) for high-accuracy results.
+- 🛒 **BeatportDL Integration**: Automatically searches for identified tracks on Beatport and queues them for download.
+- 📊 **Real-time Monitoring**: Track progress stage-by-stage and monitor background tasks via **Flower**.
+- 🐳 **Docker-First Architecture**: Seamless deployment with a fully containerized setup.
 
 ---
 
-### `GET /status/{task_id}`
+## 🛠️ How It Works
 
-Poll the Celery task status.
-
-**Response**
-```json
-{
-  "task_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "status": "SUCCESS",
-  "result": { "tracklist_id": "...", "status": "completed", "tracks": [] }
-}
+```mermaid
+graph TD
+    A[SoundCloud URL] -->|POST /analyze| B(Download Audio)
+    B -->|yt-dlp| C{Segment Audio}
+    C -->|Essentia SBIC| D[Extract Snippets]
+    D -->|FFmpeg| E(Fingerprint)
+    E -->|Shazam API| F[Aggregate Results]
+    F -->|PostgreSQL| G[Final Tracklist]
+    G -->|Optional| H[BeatportDL Search & Download]
 ```
 
-`status` mirrors Celery's standard states: `PENDING`, `STARTED`, `SUCCESS`, `FAILURE`, `RETRY`.
-
-You can optionally pass `tracklist_id` as a query parameter to receive stage-aware progress metadata:
-
-```http
-GET /status/{task_id}?tracklist_id={tracklist_id}
-```
-
-Response then includes:
-
-- `progress.stage` (`queued`, `downloading`, `segmenting`, `fingerprinting`, `completed`, `failed`)
-- `progress.progress` (0-100)
-- `progress.title` (human-readable stage)
-- `progress.message` (detailed step message)
-- `progress.processed_segments` / `progress.total_segments`
+1.  **Download**: High-quality audio is fetched using `yt-dlp` and stored on a RAM-disk.
+2.  **Segment**: Musical transitions are detected using Essentia's SBIC algorithm.
+3.  **Identify**: 12-second snippets are extracted and sent to the Shazam API.
+4.  **Sync**: Results are aggregated, saved to the database, and optionally sent to **BeatportDL**.
 
 ---
 
-### `GET /jobs`
+## 📦 BeatportDL Integration
 
-Returns recent analyses for reload-safe UI state restoration.
+SoundCloud TrackID Grabber seamlessly integrates with **BeatportDL**. Once a track is identified, the system:
+1.  Searches for the track on Beatport.
+2.  Matches it with the top result.
+3.  Automatically adds the Beatport URL to your download queue on BeatportDL.
 
-**Query params**
-- `limit` (default `20`, max `200`)
-- `status` (`active`, `completed`, `all`; default `active`)
-
-Each job includes:
-- `id`, `task_id`, `url`, `set_title`, `cover_url`, `status`
-- `progress` object with stage/title/percent/message/segment counters
+*Requires a running instance of BeatportDL and the `BEATPORTDL_API_URL` environment variable.*
 
 ---
 
-### `GET /tracklist/{tracklist_id}`
+## 🚀 Quick Start
 
-Retrieve the final tracklist with all identified tracks.
+1.  **Clone & Configure**:
+    ```bash
+    git clone https://github.com/jranners/soundcloud_trackid_grap.git
+    cd soundcloud_trackid_grap
+    ```
 
-**Response**
-```json
-{
-  "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
-  "url": "https://soundcloud.com/artist/mix-title",
-  "status": "completed",
-  "created_at": "2024-01-15T12:00:00+00:00",
-  "updated_at": "2024-01-15T12:05:00+00:00",
-  "tracks": [
-    {
-      "id": "...",
-      "title": "Track Name",
-      "artist": "Artist Name",
-      "timestamp_start": 42.0,
-      "timestamp_end": null,
-      "snippet_path": null,
-      "raw_result": { ... },
-      "created_at": "2024-01-15T12:04:30+00:00"
-    }
-  ]
-}
-```
+2.  **Environment Setup**:
+    Create a `.env` file or edit `docker-compose.yml` to set your credentials:
+    ```env
+    FLOWER_USER=admin
+    FLOWER_PASSWORD=changeme
+    BEATPORTDL_API_URL=http://your-beatportdl-instance:8080
+    ```
+
+3.  **Launch**:
+    ```bash
+    docker compose up --build -d
+    ```
+
+4.  **Analyze**:
+    ```bash
+    curl -X POST http://localhost:8000/analyze \
+         -H "Content-Type: application/json" \
+         -d '{"url": "https://soundcloud.com/user/mix-title"}'
+    ```
 
 ---
 
-## Services
+## 🏗️ Technology Stack
 
-| Service | URL | Description |
+- **Backend**: Python 3.12, FastAPI, Celery, SQLAlchemy
+- **Database**: PostgreSQL (Data), Redis (Task Queue)
+- **Audio Processing**: Essentia, FFmpeg, yt-dlp
+- **Frontend Utilities**: Jinja2 (Templates), Tailwind CSS (for UI pages)
+- **DevOps**: Docker, Docker Compose, Alembic (Migrations)
+
+---
+
+## 👨‍💻 API Endpoints
+
+| Endpoint | Method | Description |
 |---|---|---|
-| API | http://localhost:8000 | FastAPI REST interface |
-| Flower | http://localhost:5555 | Celery task monitor (admin/admin) |
-
-Interactive API documentation (Swagger UI) is available at **http://localhost:8000/docs**.
-
----
-
-## Configuration
-
-Environment variables (override in `docker-compose.yml` or via a `.env` file):
-
-| Variable | Default | Description |
-|---|---|---|
-| `REDIS_URL` | `redis://redis:6379/0` | Celery broker & result backend |
-| `DATABASE_URL` | `postgresql://user:password@postgres:5432/trackid` | PostgreSQL DSN |
-| `RAMDISK_PATH` | `/app/ramdisk` | Shared temporary audio storage between workers |
-| `FLOWER_USER` | `admin` | Flower basic-auth username |
-| `FLOWER_PASSWORD` | `admin` | Flower basic-auth password |
+| `/analyze` | `POST` | Trigger a new mix analysis. |
+| `/status/{task_id}` | `GET` | Get real-time progress of a task. |
+| `/tracklist/{id}` | `GET` | Retrieve the completed tracklist. |
+| `/jobs` | `GET` | List recent analysis jobs. |
+| `/docs` | `GET` | Interactive Swagger API documentation. |
 
 ---
 
-## Database Migrations
+## 📜 License
 
-Alembic is used for schema management:
-
-```bash
-# Migrations run automatically via the `migrate` service during `docker compose up`.
-# Manual run (if needed):
-docker compose run --rm migrate
-
-# Generate a new migration after model changes
-docker compose exec api alembic revision --autogenerate -m "describe change"
-```
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
-## Running Tests
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the full test suite
-python -m pytest tests/ -v
-```
-
-All 21 tests run without any external services (Redis, PostgreSQL, Shazam) — heavy dependencies are fully mocked.
-
----
-
-## Project Structure
-
-```
-.
-├── app/
-│   ├── main.py          # FastAPI application & endpoints
-│   ├── models.py        # SQLAlchemy ORM models (Tracklist, Track)
-│   ├── database.py      # SQLAlchemy session factory
-│   ├── celery_app.py    # Celery app configuration & routing
-│   ├── config.py        # Pydantic settings (env-based)
-│   └── tasks/
-│       ├── __init__.py  # aggregate_results task
-│       ├── download.py  # download_audio task (yt-dlp)
-│       ├── analysis.py  # segment_audio task (Essentia)
-│       └── fingerprint.py # identify_tracks task (Shazamio)
-├── alembic/             # Database migration scripts
-├── tests/               # Pytest test suite
-├── Dockerfile
-├── docker-compose.yml
-└── requirements.txt
-```
-
----
-
-## Stopping the Services
-
-```bash
-docker compose down          # Stop containers, keep volumes
-docker compose down -v       # Stop containers and delete all data
-```
+*Made for DJs, by DJs.* 🎧🔥
