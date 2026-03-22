@@ -77,9 +77,10 @@ SoundCloud TrackID Grabber seamlessly integrates with **BeatportDL**. Once a tra
 2.  **Environment Setup**:
     Create a `.env` file or edit `docker-compose.yml` to set your credentials:
     ```env
-    FLOWER_USER=admin
-    FLOWER_PASSWORD=changeme
-    BEATPORTDL_API_URL=http://your-beatportdl-instance:8080
+FLOWER_USER=admin
+FLOWER_PASSWORD=changeme
+BEATPORTDL_API_URL=http://your-beatportdl-instance:8080
+MAX_SHAZAM_CALLS_PER_ANALYSIS=30
     ```
 
 3.  **Launch**:

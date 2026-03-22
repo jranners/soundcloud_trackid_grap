@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     FLOWER_USER: str = "admin"
     FLOWER_PASSWORD: str = "admin"
     BEATPORTDL_API_URL: str = "http://192.168.178.39:10091"
+    MAX_SHAZAM_CALLS_PER_ANALYSIS: int = 30
 
 
 settings = Settings()
