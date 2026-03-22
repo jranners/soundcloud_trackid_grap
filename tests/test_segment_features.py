@@ -60,13 +60,14 @@ def test_segment_features_pipeline_and_min_duration(tmp_path):
     mfcc_matrix = np.array([s["mfcc_mean"] for s in segments], dtype="float32")
     avg_duration = sum(durations) / len(durations) if durations else 0.0
 
-    print(f"Anzahl Segmente: {len(segments)}")
-    print(f"Durchschnittliche Segmentdauer: {avg_duration:.2f}")
+    print(f"Number of segments: {len(segments)}")
+    print(f"Average segment duration: {avg_duration:.2f}")
     print(f"MFCC-Matrix Shape: {mfcc_matrix.shape}")
-    print(f"Beispiel Segment JSON: {json.dumps(segments[0], ensure_ascii=False)}")
+    print(f"Example segment JSON: {json.dumps(segments[0], ensure_ascii=False)}")
 
     assert len(segments) >= 1
     assert mfcc_matrix.ndim == 2
     assert mfcc_matrix.shape[1] == 13
-    if sum(durations) >= 45.0:
-        assert all(d >= 45.0 for d in durations[:-1])
+    assert all(d >= 45.0 for d in durations[:-1])
+    # Last segment is also expected to satisfy min-duration for this test audio (>45s total).
+    assert durations[-1] >= 45.0

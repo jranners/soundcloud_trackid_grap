@@ -294,6 +294,7 @@ def _enforce_dj_track_spacing(transitions: list[float]) -> list[float]:
 
 
 def _build_segment_ranges(transitions: list[float], audio_duration: float, min_duration: float = MIN_SEGMENT_DURATION) -> list[tuple[float, float]]:
+    """Build contiguous [start, end) ranges and enforce minimum duration by merging."""
     cleaned = sorted(
         {
             float(t)
@@ -339,15 +340,20 @@ def merge_short_segments(segments: list[tuple[float, float]], min_duration: floa
             prev_start, _prev_end = merged[idx - 1]
             merged[idx - 1] = (prev_start, end)
             del merged[idx]
+            # Re-check the merged previous segment because cascading merges can still
+            # violate min_duration when multiple adjacent short segments exist.
             idx = max(0, idx - 1)
             continue
 
         left_duration = merged[idx - 1][1] - merged[idx - 1][0]
         right_duration = merged[idx + 1][1] - merged[idx + 1][0]
+        # Tie-breaker prefers the left neighbor to keep boundary movement monotonic
+        # and deterministic across repeated runs.
         if left_duration >= right_duration:
             prev_start, _prev_end = merged[idx - 1]
             merged[idx - 1] = (prev_start, end)
             del merged[idx]
+            # Re-check the merged segment to handle chains of short neighbors.
             idx = max(0, idx - 1)
         else:
             _next_start, next_end = merged[idx + 1]

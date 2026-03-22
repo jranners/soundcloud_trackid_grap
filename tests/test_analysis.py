@@ -189,3 +189,15 @@ def test_merge_short_segments_enforces_min_duration():
     durations = [end - start for start, end in merged]
 
     assert all(d >= 45.0 for d in durations)
+
+
+def test_merge_short_segments_handles_cascading_short_segments():
+    from app.tasks.analysis import merge_short_segments
+
+    merged = merge_short_segments(
+        [(0.0, 20.0), (20.0, 40.0), (40.0, 60.0), (60.0, 160.0)],
+        min_duration=45.0,
+    )
+    durations = [end - start for start, end in merged]
+
+    assert all(d >= 45.0 for d in durations[:-1])

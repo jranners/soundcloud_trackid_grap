@@ -34,12 +34,15 @@ def identify_tracks(self, analysis_result: dict) -> dict:
 
         for idx, segment in enumerate(segments, start=1):
             candidates = segment.get("candidates", [])
+            # Backward compatibility: older analysis payloads used a flat
+            # {"path": "...", "timestamp": ...} segment format.
             if not candidates and segment.get("path"):
                 candidates = [{"path": segment.get("path"), "offset": 0}]
             timestamp = segment.get("timestamp", segment.get("start_time", 0.0))
             
             identified_result = None
             attempted_candidate = False
+            had_unsuccessful_attempt = False
             for candidate in candidates:
                 snippet_path = candidate.get("path", "")
                 if not os.path.exists(snippet_path):
@@ -47,18 +50,23 @@ def identify_tracks(self, analysis_result: dict) -> dict:
                 attempted_candidate = True
                 try:
                     result = asyncio.run(_async_identify(snippet_path))
-                    identified_result = result
                     # shazamio returns a structure where 'track' exists if identified
                     if result and "track" in result:
+                        identified_result = result
                         logger.info("Identified track at %.1fs using offset %+d: %s", timestamp, candidate.get("offset", 0), result)
                         break
+                    had_unsuccessful_attempt = True
                 except Exception as exc:
                     logger.error("Identification failed for %s: %s", snippet_path, exc)
             
-            if identified_result is None and attempted_candidate:
+            # Keep `{}` as explicit "attempted but no Shazam match" sentinel to preserve
+            # existing aggregation/test expectations while distinguishing from "not attempted" (None).
+            if identified_result is None and had_unsuccessful_attempt:
                 identified_result = {}
 
-            if not identified_result:
+            if identified_result is None:
+                logger.warning("No valid snippet candidates for transition at %.1fs", timestamp)
+            elif identified_result == {}:
                 logger.warning("No candidate recognized for transition at %.1fs", timestamp)
             identifications.append({"timestamp": timestamp, "result": identified_result})
 
@@ -85,6 +93,7 @@ def identify_tracks(self, analysis_result: dict) -> dict:
 
     finally:
         for segment in segments:
+            # Backward compatibility cleanup for legacy flat segment format.
             path = segment.get("path", "")
             if path and os.path.exists(path):
                 os.remove(path)
