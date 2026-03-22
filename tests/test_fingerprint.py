@@ -69,8 +69,8 @@ def test_known_track_identified(analysis_result):
     for item in identified:
         assert item["result"]["track"]["title"] == "Test Track"
         assert item["confidence_score"] >= 0.9
-        assert item["num_snippets"] == 2
-        assert item["num_consistent_snippets"] == 2
+        assert item["num_snippets"] == 1
+        assert item["num_consistent_snippets"] == 1
 
 
 def test_unknown_track_handled(analysis_result):
@@ -162,6 +162,7 @@ def test_inconsistent_segment_reduces_confidence(tracklist_id, tmp_path):
             {
                 "segment_index": 0,
                 "timestamp": 0.0,
+                "duration": 120.0,
                 "candidates": [
                     {"path": str(snippet1), "snippet_type": "A", "segment_index": 0},
                     {"path": str(snippet2), "snippet_type": "B", "segment_index": 0},
@@ -172,8 +173,8 @@ def test_inconsistent_segment_reduces_confidence(tracklist_id, tmp_path):
 
     async def fake_recognize(path):
         if path.endswith("_A.wav"):
-            return {"track": {"title": "Track A", "subtitle": "Artist A"}}
-        return {"track": {"title": "Track B", "subtitle": "Artist B"}}
+            return {"track": {"title": "Track A", "subtitle": "Artist A", "score": 0.1}}
+        return {"track": {"title": "Track B", "subtitle": "Artist B", "score": 0.8}}
 
     mock_shazam_cls = MagicMock()
     mock_shazam_instance = MagicMock()
@@ -188,7 +189,103 @@ def test_inconsistent_segment_reduces_confidence(tracklist_id, tmp_path):
         result = identify_tracks.__wrapped__(analysis)
 
     item = result["identifications"][0]
-    assert item["result"]["track"]["title"] in {"Track A", "Track B"}
+    assert item["result"]["track"]["title"] == "Track B"
     assert item["num_snippets"] == 2
     assert item["num_consistent_snippets"] == 1
-    assert 0.0 < item["confidence_score"] < 0.9
+    assert item["confidence_score"] == 0.6
+
+
+def test_backoff_retries_on_429_and_succeeds():
+    import asyncio
+
+    sleep_calls = []
+    attempts = {"n": 0}
+
+    async def flaky():
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise Exception("429 Too Many Requests")
+        return {"ok": True}
+
+    async def fake_sleep(delay):
+        sleep_calls.append(delay)
+
+    with patch("app.tasks.fingerprint.asyncio.sleep", side_effect=fake_sleep):
+        from app.tasks.fingerprint import call_with_backoff
+
+        result, retries = asyncio.run(call_with_backoff(flaky, max_retries=5, base_delay=2.0))
+
+    assert result == {"ok": True}
+    assert retries == 2
+    assert sleep_calls == [2.0, 4.0]
+
+
+def test_max_shazam_calls_per_analysis_respected(tracklist_id, tmp_path):
+    snippets = []
+    segments = []
+    for seg_idx in range(3):
+        a = tmp_path / f"{tracklist_id}_snippet_{seg_idx}_A.wav"
+        b = tmp_path / f"{tracklist_id}_snippet_{seg_idx}_B.wav"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        snippets.extend([str(a), str(b)])
+        segments.append(
+            {
+                "segment_index": seg_idx,
+                "timestamp": float(seg_idx * 60),
+                "duration": 120.0,
+                "candidates": [
+                    {"path": str(a), "snippet_type": "A", "segment_index": seg_idx, "snippet_start": 2.0},
+                    {"path": str(b), "snippet_type": "B", "segment_index": seg_idx, "snippet_start": 62.0},
+                ],
+            }
+        )
+    analysis = {"tracklist_id": tracklist_id, "segments": segments}
+
+    calls = {"count": 0}
+
+    async def fake_identify(_path):
+        from app.tasks.fingerprint import ShazamResult
+
+        calls["count"] += 1
+        return ShazamResult(result={}, no_match=True)
+
+    with (
+        patch("app.tasks.fingerprint.identify_snippet", side_effect=fake_identify),
+        patch("app.tasks.fingerprint.settings") as mock_settings,
+    ):
+        mock_settings.MAX_SHAZAM_CALLS_PER_ANALYSIS = 2
+        from app.tasks.fingerprint import identify_tracks
+
+        result = identify_tracks.__wrapped__(analysis)
+
+    assert calls["count"] == 2
+    assert len(result["identifications"]) == 3
+
+
+def test_json_error_becomes_no_match():
+    import asyncio
+
+    async def fake_sleep(_delay):
+        return None
+
+    async def failing_recognize(_path):
+        raise ValueError("JSON decode error")
+
+    mock_shazam_cls = MagicMock()
+    mock_shazam_instance = MagicMock()
+    mock_shazam_instance.recognize = failing_recognize
+    mock_shazam_cls.return_value = mock_shazam_instance
+    mock_shazamio = MagicMock()
+    mock_shazamio.Shazam = mock_shazam_cls
+
+    with (
+        patch.dict("sys.modules", {"shazamio": mock_shazamio}),
+        patch("app.tasks.fingerprint.asyncio.sleep", side_effect=fake_sleep),
+    ):
+        from app.tasks.fingerprint import identify_snippet
+
+        result = asyncio.run(identify_snippet("/tmp/fake.wav"))
+
+    assert result.no_match is True
+    assert result.result == {}
