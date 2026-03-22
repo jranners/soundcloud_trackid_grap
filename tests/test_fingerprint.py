@@ -44,6 +44,8 @@ def analysis_result(tmp_path, tracklist_id):
 
 
 KNOWN_RESULT = {"track": {"title": "Test Track", "subtitle": "Test Artist", "key": "12345"}}
+LOW_SCORE = 0.1
+HIGH_SCORE = 0.8
 
 
 def test_known_track_identified(analysis_result):
@@ -173,8 +175,8 @@ def test_inconsistent_segment_reduces_confidence(tracklist_id, tmp_path):
 
     async def fake_recognize(path):
         if path.endswith("_A.wav"):
-            return {"track": {"title": "Track A", "subtitle": "Artist A", "score": 0.1}}
-        return {"track": {"title": "Track B", "subtitle": "Artist B", "score": 0.8}}
+            return {"track": {"title": "Track A", "subtitle": "Artist A", "score": LOW_SCORE}}
+        return {"track": {"title": "Track B", "subtitle": "Artist B", "score": HIGH_SCORE}}
 
     mock_shazam_cls = MagicMock()
     mock_shazam_instance = MagicMock()
@@ -261,6 +263,9 @@ def test_max_shazam_calls_per_analysis_respected(tracklist_id, tmp_path):
 
     assert calls["count"] == 2
     assert len(result["identifications"]) == 3
+    assert result["identifications"][0]["num_snippets"] == 2
+    assert result["identifications"][1]["num_snippets"] == 0
+    assert result["identifications"][2]["num_snippets"] == 0
 
 
 def test_json_error_becomes_no_match():
@@ -289,3 +294,45 @@ def test_json_error_becomes_no_match():
 
     assert result.no_match is True
     assert result.result == {}
+
+
+def test_budget_exhausted_mid_segment_skips_fallback(tracklist_id, tmp_path):
+    snippet_a = tmp_path / f"{tracklist_id}_snippet_0_A.wav"
+    snippet_b = tmp_path / f"{tracklist_id}_snippet_0_B.wav"
+    snippet_a.write_bytes(b"a")
+    snippet_b.write_bytes(b"b")
+    analysis = {
+        "tracklist_id": tracklist_id,
+        "segments": [
+            {
+                "segment_index": 0,
+                "timestamp": 0.0,
+                "duration": 120.0,
+                "candidates": [
+                    {"path": str(snippet_a), "snippet_type": "A", "segment_index": 0, "snippet_start": 2.0},
+                    {"path": str(snippet_b), "snippet_type": "B", "segment_index": 0, "snippet_start": 62.0},
+                ],
+            }
+        ],
+    }
+
+    call_paths = []
+
+    async def fake_identify(path):
+        from app.tasks.fingerprint import ShazamResult
+
+        call_paths.append(path)
+        return ShazamResult(result={}, no_match=True)
+
+    with (
+        patch("app.tasks.fingerprint.identify_snippet", side_effect=fake_identify),
+        patch("app.tasks.fingerprint.settings") as mock_settings,
+    ):
+        mock_settings.MAX_SHAZAM_CALLS_PER_ANALYSIS = 1
+        from app.tasks.fingerprint import identify_tracks
+
+        result = identify_tracks.__wrapped__(analysis)
+
+    assert call_paths == [str(snippet_a)]
+    assert result["identifications"][0]["num_snippets"] == 1
+    assert result["identifications"][0]["result"] == {}

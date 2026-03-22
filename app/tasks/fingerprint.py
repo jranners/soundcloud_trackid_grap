@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import random
 from dataclasses import dataclass
 
 from celery.utils.log import get_task_logger
@@ -12,6 +11,11 @@ from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
 logger_shazam = get_task_logger(f"{__name__}.shazam")
+
+PRE_REQUEST_DELAY_SECONDS = 1.0
+MIN_SEGMENT_DURATION_FOR_FALLBACK = 90.0
+UNCERTAIN_SCORE_THRESHOLD = 0.2
+DISAGREEMENT_CONFIDENCE = 0.6
 
 
 @dataclass
@@ -101,7 +105,7 @@ async def identify_snippet(snippet_path: str) -> ShazamResult:
     from shazamio import Shazam
 
     shazam = Shazam()
-    await asyncio.sleep(random.uniform(1.0, 2.0))
+    await asyncio.sleep(PRE_REQUEST_DELAY_SECONDS)
 
     async def _recognize():
         return await shazam.recognize(snippet_path)
@@ -126,30 +130,30 @@ async def identify_snippet(snippet_path: str) -> ShazamResult:
 def _should_try_fallback(segment: dict, calls_used: int, max_calls: int) -> bool:
     if calls_used >= max_calls:
         return False
-    duration = float(segment.get("duration") or 0.0)
-    return duration >= 90.0
+    duration = float(segment.get("duration", 0.0) or 0.0)
+    return duration >= MIN_SEGMENT_DURATION_FOR_FALLBACK
 
 
 def _select_best_candidate(candidate_a: dict, candidate_b: dict) -> tuple[dict, float]:
     score_a = _extract_shazam_score(candidate_a)
     score_b = _extract_shazam_score(candidate_b)
     if score_a > score_b:
-        return candidate_a, 0.6
+        return candidate_a, DISAGREEMENT_CONFIDENCE
     if score_b > score_a:
-        return candidate_b, 0.6
+        return candidate_b, DISAGREEMENT_CONFIDENCE
 
     meta_a = _meta_quality(candidate_a)
     meta_b = _meta_quality(candidate_b)
     if meta_a >= meta_b:
-        return candidate_a, 0.6
-    return candidate_b, 0.6
+        return candidate_a, DISAGREEMENT_CONFIDENCE
+    return candidate_b, DISAGREEMENT_CONFIDENCE
 
 
 def _is_uncertain_result(result: dict | None) -> bool:
     if result in (None, {}):
         return True
     score = _extract_shazam_score(result)
-    if 0.0 < score < 0.2:
+    if 0.0 < score < UNCERTAIN_SCORE_THRESHOLD:
         return True
     return _meta_quality(result) < 2
 
@@ -221,7 +225,10 @@ def identify_tracks(self, analysis_result: dict) -> dict:
                 except Exception as exc:
                     logger.error("Identification failed for %s: %s", candidate_a["path"], exc)
             elif candidate_a:
-                logger.warning("Shazam call budget exhausted before segment %s snippet A", idx - 1)
+                logger.warning(
+                    "Shazam call budget exhausted before segment %s snippet A",
+                    segment.get("segment_index", idx - 1),
+                )
 
             needs_fallback = (
                 candidate_b is not None
@@ -257,11 +264,7 @@ def identify_tracks(self, analysis_result: dict) -> dict:
                                 selected_result, res_b.result
                             )
                             consistent = 1
-                    elif selected_result in ({}, None):
-                        selected_result = {}
-                        confidence = 0.0
-                        consistent = 0
-                    else:
+                    elif selected_result not in ({}, None):
                         confidence = min(confidence, 0.6)
                         consistent = 1
                 except Exception as exc:
@@ -269,15 +272,13 @@ def identify_tracks(self, analysis_result: dict) -> dict:
 
             if snippets_attempted == 0:
                 result_out = None
+                logger.warning("No valid snippet candidates for transition at %.1fs", timestamp)
             else:
                 result_out = selected_result or {}
-
-            if snippets_attempted == 0:
-                logger.warning("No valid snippet candidates for transition at %.1fs", timestamp)
-            elif result_out == {}:
-                logger.warning("No candidate recognized for transition at %.1fs", timestamp)
-            else:
-                logger.info("Aggregated segment at %.1fs with confidence %.2f", timestamp, confidence)
+                if result_out == {}:
+                    logger.warning("No candidate recognized for transition at %.1fs", timestamp)
+                else:
+                    logger.info("Aggregated segment at %.1fs with confidence %.2f", timestamp, confidence)
 
             identifications.append(
                 {
