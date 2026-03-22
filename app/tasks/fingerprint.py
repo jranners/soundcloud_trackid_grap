@@ -25,6 +25,13 @@ class ShazamResult:
     throttled_retries: int = 0
 
 
+@dataclass
+class SegmentIdentifyAttempt:
+    candidate: dict
+    result: ShazamResult | None = None
+    error: Exception | None = None
+
+
 def _extract_identity(result: dict | None) -> tuple[str | None, str | None]:
     if not isinstance(result, dict):
         return None, None
@@ -127,6 +134,53 @@ async def identify_snippet(snippet_path: str) -> ShazamResult:
     return ShazamResult(result=result or {}, no_match=not matched, throttled_retries=retries)
 
 
+def run_identify_snippets_for_segment(
+    segment: dict,
+    candidate_a: dict | None,
+    candidate_b: dict | None,
+    calls_used: int,
+    max_calls: int,
+    segment_index_fallback: int | None = None,
+) -> tuple[list[SegmentIdentifyAttempt], int]:
+    async def _run() -> list[SegmentIdentifyAttempt]:
+        attempts: list[SegmentIdentifyAttempt] = []
+        selected_result = {}
+        nonlocal calls_used
+
+        if candidate_a and calls_used < max_calls:
+            calls_used += 1
+            try:
+                res_a = await identify_snippet(candidate_a["path"])
+                attempts.append(SegmentIdentifyAttempt(candidate=candidate_a, result=res_a))
+                selected_result = res_a.result
+            except Exception as exc:
+                attempts.append(SegmentIdentifyAttempt(candidate=candidate_a, error=exc))
+        elif candidate_a:
+            logger.warning(
+                "Shazam call budget exhausted before segment %s snippet A",
+                segment.get("segment_index", segment_index_fallback),
+            )
+
+        needs_fallback = (
+            candidate_b is not None
+            and _is_uncertain_result(selected_result)
+            and _should_try_fallback(segment, calls_used, max_calls)
+        )
+        if needs_fallback:
+            calls_used += 1
+            try:
+                res_b = await identify_snippet(candidate_b["path"])
+                attempts.append(SegmentIdentifyAttempt(candidate=candidate_b, result=res_b))
+            except Exception as exc:
+                attempts.append(SegmentIdentifyAttempt(candidate=candidate_b, error=exc))
+
+        return attempts
+
+    if candidate_a is None and candidate_b is None:
+        return [], calls_used
+    return asyncio.run(_run()), calls_used
+
+
 def _should_try_fallback(segment: dict, calls_used: int, max_calls: int) -> bool:
     if calls_used >= max_calls:
         return False
@@ -203,72 +257,60 @@ def identify_tracks(self, analysis_result: dict) -> dict:
             selected_result = {}
             confidence = 0.0
             consistent = 0
-            snippets_attempted = 0
+            attempts, calls_used = run_identify_snippets_for_segment(
+                segment=segment,
+                candidate_a=candidate_a,
+                candidate_b=candidate_b,
+                calls_used=calls_used,
+                max_calls=max_calls,
+                segment_index_fallback=idx - 1,
+            )
+            snippets_attempted = len(attempts)
 
-            if candidate_a and calls_used < max_calls:
-                snippets_attempted += 1
-                calls_used += 1
-                try:
-                    res_a = asyncio.run(identify_snippet(candidate_a["path"]))
-                    snippet_matches.append(
-                        {
-                            "snippet_type": candidate_a.get("snippet_type"),
-                            "segment_index": candidate_a.get("segment_index"),
-                            "snippet_start": candidate_a.get("snippet_start"),
-                            "offset": candidate_a.get("offset", 0),
-                            "result": res_a.result,
-                        }
-                    )
-                    selected_result = res_a.result
-                    confidence = 0.9 if not res_a.no_match else 0.0
-                    consistent = 1 if not res_a.no_match else 0
-                except Exception as exc:
-                    logger.error("Identification failed for %s: %s", candidate_a["path"], exc)
-            elif candidate_a:
-                logger.warning(
-                    "Shazam call budget exhausted before segment %s snippet A",
-                    segment.get("segment_index", idx - 1),
+            for attempt_idx, attempt in enumerate(attempts):
+                candidate = attempt.candidate
+                if attempt.error is not None:
+                    logger.error("Identification failed for %s: %s", candidate["path"], attempt.error)
+                    continue
+
+                result_obj = attempt.result
+                if result_obj is None:
+                    continue
+
+                snippet_matches.append(
+                    {
+                        "snippet_type": candidate.get("snippet_type"),
+                        "segment_index": candidate.get("segment_index"),
+                        "snippet_start": candidate.get("snippet_start"),
+                        "offset": candidate.get("offset", 0),
+                        "result": result_obj.result,
+                    }
                 )
 
-            needs_fallback = (
-                candidate_b is not None
-                and _is_uncertain_result(selected_result)
-                and _should_try_fallback(segment, calls_used, max_calls)
-            )
-            if needs_fallback:
-                snippets_attempted += 1
-                calls_used += 1
-                try:
-                    res_b = asyncio.run(identify_snippet(candidate_b["path"]))
-                    snippet_matches.append(
-                        {
-                            "snippet_type": candidate_b.get("snippet_type"),
-                            "segment_index": candidate_b.get("segment_index"),
-                            "snippet_start": candidate_b.get("snippet_start"),
-                            "offset": candidate_b.get("offset", 0),
-                            "result": res_b.result,
-                        }
-                    )
-                    if selected_result in ({}, None) and not res_b.no_match:
-                        selected_result = res_b.result
-                        confidence = 0.9
+                if attempt_idx == 0:
+                    selected_result = result_obj.result
+                    confidence = 0.9 if not result_obj.no_match else 0.0
+                    consistent = 1 if not result_obj.no_match else 0
+                    continue
+
+                if selected_result in ({}, None) and not result_obj.no_match:
+                    selected_result = result_obj.result
+                    confidence = 0.9
+                    consistent = 1
+                elif selected_result not in ({}, None) and not result_obj.no_match:
+                    title_a, artist_a = _extract_identity(selected_result)
+                    title_b, artist_b = _extract_identity(result_obj.result)
+                    if (title_a, artist_a) == (title_b, artist_b):
+                        confidence = 0.95
+                        consistent = 2
+                    else:
+                        selected_result, confidence = _select_best_candidate(
+                            selected_result, result_obj.result
+                        )
                         consistent = 1
-                    elif selected_result not in ({}, None) and not res_b.no_match:
-                        title_a, artist_a = _extract_identity(selected_result)
-                        title_b, artist_b = _extract_identity(res_b.result)
-                        if (title_a, artist_a) == (title_b, artist_b):
-                            confidence = 0.95
-                            consistent = 2
-                        else:
-                            selected_result, confidence = _select_best_candidate(
-                                selected_result, res_b.result
-                            )
-                            consistent = 1
-                    elif selected_result not in ({}, None):
-                        confidence = min(confidence, 0.6)
-                        consistent = 1
-                except Exception as exc:
-                    logger.error("Identification failed for %s: %s", candidate_b["path"], exc)
+                elif selected_result not in ({}, None):
+                    confidence = min(confidence, 0.6)
+                    consistent = 1
 
             if snippets_attempted == 0:
                 result_out = None
