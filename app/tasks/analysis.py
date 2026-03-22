@@ -11,7 +11,6 @@ from app.config import settings
 from app.tasks.progress import set_tracklist_progress
 
 logger = get_task_logger(__name__)
-MIN_SEGMENT_DURATION = settings.MIN_SEGMENT_DURATION
 DEFAULT_DJ_MIN_TRACK_GAP = 75.0
 DEFAULT_DJ_IDEAL_TRACK_GAP = 105.0
 DEFAULT_DJ_MAX_TRACK_GAP = 150.0
@@ -20,6 +19,7 @@ DEFAULT_MIN_SEGMENT_DURATION = 45.0
 
 def _get_float_setting(name: str, default: float) -> float:
     value = getattr(settings, name, default)
+    # bool is a subclass of int; treat it as invalid config for numeric settings.
     if isinstance(value, bool):
         return float(default)
     if isinstance(value, (int, float)):
@@ -30,6 +30,12 @@ def _get_float_setting(name: str, default: float) -> float:
         return float(value.strip())
     except (TypeError, ValueError):
         return float(default)
+
+
+MIN_SEGMENT_DURATION = _get_float_setting(
+    "MIN_SEGMENT_DURATION",
+    DEFAULT_MIN_SEGMENT_DURATION,
+)
 
 @dataclass
 class SegmentFeatures:
