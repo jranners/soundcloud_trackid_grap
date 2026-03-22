@@ -211,6 +211,23 @@ def test_enforce_dj_track_spacing_uses_settings_values():
         selected = _enforce_dj_track_spacing(transitions)
 
     assert selected == [10.0, 60.0, 120.0, 170.0, 230.0]
+    gaps = [b - a for a, b in zip(selected, selected[1:])]
+    assert all(45 <= gap <= 80 for gap in gaps)
+
+
+def test_enforce_dj_track_spacing_filters_out_of_window_candidates():
+    from app.tasks.analysis import _enforce_dj_track_spacing
+
+    transitions = [10.0, 40.0, 80.0, 125.0, 170.0, 260.0]
+
+    with patch("app.tasks.analysis.settings") as mock_settings:
+        mock_settings.DJ_MIN_TRACK_GAP = 45
+        mock_settings.DJ_IDEAL_TRACK_GAP = 60
+        mock_settings.DJ_MAX_TRACK_GAP = 80
+        selected = _enforce_dj_track_spacing(transitions)
+
+    assert selected == [10.0, 80.0, 125.0, 170.0, 260.0]
+    assert 40.0 not in selected
 
 
 def test_merge_short_segments_enforces_min_duration():
