@@ -113,7 +113,7 @@ MAX_SHAZAM_CALLS_PER_ANALYSIS=30
 |---|---|---|
 | `/analyze` | `POST` | Trigger a new mix analysis. |
 | `/status/{task_id}` | `GET` | Get real-time progress of a task. |
-| `/tracklist/{id}` | `GET` | Retrieve the completed tracklist. |
+| `/tracklist/{id}` | `GET` | Retrieve the completed tracklist including per-track confidence (`confidence_score`, `num_snippets`, `num_consistent_snippets`, `raw_matches_json`). |
 | `/jobs` | `GET` | List recent analysis jobs. |
 | `/docs` | `GET` | Interactive Swagger API documentation. |
 

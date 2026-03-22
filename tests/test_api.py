@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, Tracklist
+from app.models import Base, Track, Tracklist
 
 SQLITE_URL = "sqlite://"
 
@@ -223,3 +223,49 @@ def test_get_tracklist_success(session):
     assert data["id"] == str(tl_id)
     assert data["status"] == "completed"
     assert data["tracks"] == []
+
+
+def test_get_tracklist_includes_confidence_fields(session):
+    from app.main import app
+
+    tl_id = uuid.uuid4()
+    tl = Tracklist(id=tl_id, url="https://soundcloud.com/test/mix", status="completed")
+    session.add(tl)
+    session.flush()
+    session.add(
+        Track(
+            tracklist_id=tl_id,
+            title="Track Title",
+            artist="Track Artist",
+            timestamp_start=12.0,
+            timestamp_end=30.0,
+            confidence_score=0.91,
+            num_snippets=3,
+            num_consistent_snippets=2,
+            raw_matches_json=[
+                {
+                    "snippet_type": "a",
+                    "result": {"track": {"title": "Track Title", "subtitle": "Track Artist"}},
+                }
+            ],
+        )
+    )
+    session.commit()
+
+    with patch("app.main.get_db", side_effect=make_fake_get_db(session)):
+        with TestClient(app) as client:
+            resp = client.get(f"/tracklist/{tl_id}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["tracks"]) == 1
+    track = data["tracks"][0]
+    assert track["confidence_score"] == 0.91
+    assert track["num_snippets"] == 3
+    assert track["num_consistent_snippets"] == 2
+    assert track["raw_matches_json"] == [
+        {
+            "snippet_type": "a",
+            "result": {"track": {"title": "Track Title", "subtitle": "Track Artist"}},
+        }
+    ]
