@@ -142,13 +142,13 @@ def run_identify_snippets_for_segment(
     max_calls: int,
     segment_index_fallback: int | None = None,
 ) -> tuple[list[SegmentIdentifyAttempt], int]:
-    async def _run() -> list[SegmentIdentifyAttempt]:
+    async def _run(initial_calls_used: int) -> tuple[list[SegmentIdentifyAttempt], int]:
         attempts: list[SegmentIdentifyAttempt] = []
         selected_result = {}
-        nonlocal calls_used
+        current_calls_used = initial_calls_used
 
-        if candidate_a and calls_used < max_calls:
-            calls_used += 1
+        if candidate_a and current_calls_used < max_calls:
+            current_calls_used += 1
             try:
                 res_a = await identify_snippet(candidate_a["path"])
                 attempts.append(SegmentIdentifyAttempt(candidate=candidate_a, result=res_a))
@@ -164,21 +164,21 @@ def run_identify_snippets_for_segment(
         needs_fallback = (
             candidate_b is not None
             and _is_uncertain_result(selected_result)
-            and _should_try_fallback(segment, calls_used, max_calls)
+            and _should_try_fallback(segment, current_calls_used, max_calls)
         )
         if needs_fallback:
-            calls_used += 1
+            current_calls_used += 1
             try:
                 res_b = await identify_snippet(candidate_b["path"])
                 attempts.append(SegmentIdentifyAttempt(candidate=candidate_b, result=res_b))
             except Exception as exc:
                 attempts.append(SegmentIdentifyAttempt(candidate=candidate_b, error=exc))
 
-        return attempts
+        return attempts, current_calls_used
 
     if candidate_a is None and candidate_b is None:
         return [], calls_used
-    return asyncio.run(_run()), calls_used
+    return asyncio.run(_run(calls_used))
 
 
 def _should_try_fallback(segment: dict, calls_used: int, max_calls: int) -> bool:
@@ -267,7 +267,31 @@ def identify_tracks(self, analysis_result: dict) -> dict:
             )
             snippets_attempted = len(attempts)
 
-            for attempt_idx, attempt in enumerate(attempts):
+            if attempts:
+                first_attempt = attempts[0]
+                first_candidate = first_attempt.candidate
+                if first_attempt.error is not None:
+                    logger.error(
+                        "Identification failed for %s: %s",
+                        first_candidate["path"],
+                        first_attempt.error,
+                    )
+                elif first_attempt.result is not None:
+                    first_result_obj = first_attempt.result
+                    snippet_matches.append(
+                        {
+                            "snippet_type": first_candidate.get("snippet_type"),
+                            "segment_index": first_candidate.get("segment_index"),
+                            "snippet_start": first_candidate.get("snippet_start"),
+                            "offset": first_candidate.get("offset", 0),
+                            "result": first_result_obj.result,
+                        }
+                    )
+                    selected_result = first_result_obj.result
+                    confidence = 0.9 if not first_result_obj.no_match else 0.0
+                    consistent = 1 if not first_result_obj.no_match else 0
+
+            for attempt in attempts[1:]:
                 candidate = attempt.candidate
                 if attempt.error is not None:
                     logger.error("Identification failed for %s: %s", candidate["path"], attempt.error)
@@ -286,12 +310,6 @@ def identify_tracks(self, analysis_result: dict) -> dict:
                         "result": result_obj.result,
                     }
                 )
-
-                if attempt_idx == 0:
-                    selected_result = result_obj.result
-                    confidence = 0.9 if not result_obj.no_match else 0.0
-                    consistent = 1 if not result_obj.no_match else 0
-                    continue
 
                 if selected_result in ({}, None) and not result_obj.no_match:
                     selected_result = result_obj.result

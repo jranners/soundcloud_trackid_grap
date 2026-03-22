@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.tasks.fingerprint import SegmentIdentifyAttempt, ShazamResult
+
 
 @pytest.fixture()
 def tracklist_id():
@@ -371,8 +373,6 @@ def test_identify_tracks_uses_segment_runner_and_payload_shape_unchanged(trackli
     }
 
     def fake_runner(segment, candidate_a, candidate_b, calls_used, max_calls, segment_index_fallback=None):
-        from app.tasks.fingerprint import SegmentIdentifyAttempt, ShazamResult
-
         attempts = []
         if candidate_a is not None and calls_used < max_calls:
             calls_used += 1
