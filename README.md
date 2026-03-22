@@ -55,6 +55,20 @@ graph TD
 
 ---
 
+## 🎛️ Tuning & Heuristics
+
+The analysis pipeline exposes key heuristics via environment variables:
+
+- `SNIPPET_DURATION_SECONDS` (default: `8`): length of each extracted snippet used for fingerprinting.
+- `MIN_SEGMENT_DURATION` (default: `45.0`): minimum segment length in seconds before short segments are merged.
+- `DJ_MIN_TRACK_GAP` (default: `75`): minimum allowed spacing (seconds) between selected transition points.
+- `DJ_IDEAL_TRACK_GAP` (default: `105`): preferred spacing (seconds) used when choosing the next transition candidate.
+- `DJ_MAX_TRACK_GAP` (default: `150`): maximum spacing (seconds) considered in the preferred transition window.
+
+These can be tuned per deployment/genre without code changes by setting ENV values in `.env` or `docker-compose.yml`.
+
+---
+
 ## 📦 BeatportDL Integration
 
 SoundCloud TrackID Grabber seamlessly integrates with **BeatportDL**. Once a track is identified, the system:
