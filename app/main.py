@@ -70,7 +70,7 @@ def _serialize_tracklist_summary(tracklist: Tracklist) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    return _templates.TemplateResponse("index.html", {"request": request})
+    return _templates.TemplateResponse(request=request, name="index.html")
 
 
 @app.get("/health")
