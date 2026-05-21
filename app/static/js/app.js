@@ -133,8 +133,6 @@ async function startAnalysis() {
 
   hideError();
   analyzeBtn.disabled = true;
-  analyzeBtn.classList.add("is-loading");
-  analyzeBtn.setAttribute("aria-busy", "true");
 
   try {
     const res = await fetch("/analyze", {
@@ -169,8 +167,6 @@ async function startAnalysis() {
     showError(err.message);
   } finally {
     analyzeBtn.disabled = false;
-    analyzeBtn.classList.remove("is-loading");
-    analyzeBtn.setAttribute("aria-busy", "false");
   }
 }
 
