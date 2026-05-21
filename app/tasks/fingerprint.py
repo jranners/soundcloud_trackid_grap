@@ -153,9 +153,7 @@ def _is_uncertain_result(result: dict | None) -> bool:
     if result in (None, {}):
         return True
     score = _extract_shazam_score(result)
-    if score <= 0.0:
-        return True
-    if score < UNCERTAIN_SCORE_THRESHOLD:
+    if 0.0 < score < UNCERTAIN_SCORE_THRESHOLD:
         return True
     return _meta_quality(result) < 2
 
